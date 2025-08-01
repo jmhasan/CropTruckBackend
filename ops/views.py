@@ -14,7 +14,8 @@ from rest_framework.views import APIView
 
 from masterdata.serializers import CustomerProfileResponseSerializer
 from ops.models import TokenNumber
-from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer
+from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
+    CertificateSerializer
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.parsers import JSONParser
@@ -326,4 +327,36 @@ class CustomerProfileDetail(APIView):
             return APIResponse.error(
                 message="Failed to retrieve customer profile. Please try again.",
                 status_code=500
+            )
+
+
+@permission_classes([IsAuthenticated])
+class CertificateCreate(APIView):
+    def post(self, request, format=None):
+        """Create a new common code"""
+        try:
+            # Create serializer with request data
+            serializer = CertificateSerializer(data=request.data)
+
+            if serializer.is_valid():
+                # Save with additional fields if needed
+                instance = serializer.save(
+                    created_by=request.user,
+                    # Add business_id if your model has it
+                    business_id=CompanyProfile.objects.get(pk=request.user.business_id)
+                )
+                return APIResponse.created(
+                    data=serializer.data,
+                    message="Certificate created successfully"
+                )
+            else:
+                return APIResponse.validation_error(
+                    errors=serializer.errors,
+                    message="Certificate creation failed"
+                )
+
+        except Exception as e:
+            return APIResponse.error(
+                message="Failed to create Certificate",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

@@ -2,7 +2,7 @@ from django.core.validators import RegexValidator
 from rest_framework import serializers
 
 from masterdata.models import CustomerProfile
-from ops.models import TokenNumber, Booking
+from ops.models import TokenNumber, Booking, Certificate
 
 
 class TokenSerializer(serializers.ModelSerializer):
@@ -206,3 +206,9 @@ class BookingCreateSerializer(serializers.ModelSerializer):
         )
 
         return booking
+
+class CertificateSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Certificate
+        fields = '__all__'
+        read_only_fields = ['business_id', 'zactive']
