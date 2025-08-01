@@ -95,5 +95,60 @@ class TokenNumber(AuditModel):
         verbose_name = 'Token Number'
         verbose_name_plural = 'Token Numbers'
 
+class Certificate(models.Model):
+    pk = models.CompositePrimaryKey('business_id', 'token_no')
 
+    # Use correct app_label.ModelName
+    business_id = models.ForeignKey('masterdata.CompanyProfile', on_delete=models.DO_NOTHING)
+    token_no = models.CharField(max_length=10)
 
+    certificate_no = models.CharField(max_length=20, blank=True, null=True)
+    booking_no = models.CharField(max_length=50, blank=True, null=True)
+    customer_code = models.CharField(max_length=50, blank=True, null=True)
+    customer_name = models.CharField(max_length=255)
+    xmobile = models.CharField(max_length=20, blank=True, null=True)
+    father_name = models.CharField(max_length=150, blank=True, null=True)
+    division_name = models.CharField(max_length=100, blank=True, null=True)
+    district_name = models.CharField(max_length=100, blank=True, null=True)
+    upazila_name = models.CharField(max_length=100, blank=True, null=True)
+    union_name = models.CharField(max_length=100, blank=True, null=True)
+    village = models.CharField(max_length=150, blank=True, null=True)
+    post_office = models.CharField(max_length=100, blank=True, null=True)
+
+    number_of_sacks = models.IntegerField()
+    potato_type = models.CharField(max_length=100, blank=True, null=True)
+    rent_per_sack = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    total_rent = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    advance_rent = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    remaining_rent = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    number_of_empty_sacks = models.IntegerField()
+    price_of_empty_sacks = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    transportation = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    given_loan = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    total_amount_taka = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+
+    # Correct references to the user model
+    created_by = models.ForeignKey('user.CustomUser', on_delete=models.DO_NOTHING, blank=True, null=True)
+    updated_by = models.ForeignKey('user.CustomUser', on_delete=models.DO_NOTHING, related_name='certificate_updated_by_set', blank=True, null=True)
+
+    created_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'certificate'
+
+    def __str__(self):
+        return str(self.token_no)
+
+    # def save(self, *args, **kwargs):
+    #     # Auto-calculate fields before saving
+    #     self.total_rent = self.number_of_sacks * self.rent_per_sack
+    #     self.remaining_rent = self.total_rent - self.advance_rent
+    #     self.total_amount_taka = (
+    #             self.total_rent +
+    #             (self.number_of_empty_sacks * self.price_of_empty_sacks) +
+    #             self.transportation +
+    #             self.given_loan
+    #     )
+    #     super().save(*args, **kwargs)
