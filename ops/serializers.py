@@ -226,16 +226,50 @@ class CertificateCreateSerializer(serializers.Serializer):
     # Optional certificate fields
     certificate_no = serializers.CharField(max_length=20, required=False, allow_blank=True)
     booking_no = serializers.CharField(max_length=50, required=False, allow_blank=True)
-    customer_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+    # Customer contact information
+    contact_person = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    xphone = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    xemail = serializers.EmailField(required=False, allow_blank=True)
 
     # Customer address fields
-    father_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    father_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     division_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     district_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     upazila_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
     union_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
-    village = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    village = serializers.CharField(max_length=100, required=False, allow_blank=True)
     post_office = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    postal_code = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    xaddress = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    # Customer classification
+    customer_type = serializers.ChoiceField(
+        choices=[
+            ('Farmer', 'Farmer'),
+            ('Retailer', 'Retailer'),
+            ('Dealer', 'Dealer'),
+            ('Corporate', 'Corporate'),
+            ('Trader', 'Trader'),
+            ('Agent', 'Agent'),
+        ],
+        default='Farmer',
+        required=False
+    )
+
+    # Business/Legal Details
+    trade_license_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    bin_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    tin_number = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    # Financial Details
+    credit_limit = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    credit_terms_days = serializers.IntegerField(required=False)
+    default_discount = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
+
+    # Additional fields
+    group_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    remarks = serializers.CharField(required=False, allow_blank=True)
 
     # Business fields
     potato_type = serializers.CharField(max_length=100, required=False, allow_blank=True)

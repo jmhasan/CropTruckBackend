@@ -15,7 +15,11 @@ urlpatterns = [
     # Create booking (automatically handles customer)
     path('bookings/create/', views.BookingCreate.as_view(), name='booking_create'),
     path('bookings/list/', views.BookingList.as_view(), name='booking -list'),
-    path('certificates/create/', views.CertificateCreate.as_view(), name='certificate-create'),
+    # Certificate API List
+    path('certificates/create/', views.CertificateCreateAPIView.as_view(), name='certificate-create'),
+    path('certificates/list/', views.CertificateListAPIView.as_view(), name='certificate-list'),
+    path('certificates/<str:token_no>/', views.CertificateDetailAPIView.as_view(), name='certificate-detail'),
+
 
 
 ]
