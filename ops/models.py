@@ -73,6 +73,7 @@ class Booking(AuditModel):
     post_office = models.TextField(max_length=100, blank=True, null=True)
     xadvance = models.DecimalField(max_digits=20, decimal_places=4, default=0.00)
     xsack = models.IntegerField(default=0.00)
+    xstatus = models.CharField(max_length=50, default='Pending')
 
 
     class Meta:
@@ -140,15 +141,3 @@ class Certificate(models.Model):
 
     def __str__(self):
         return str(self.token_no)
-
-    # def save(self, *args, **kwargs):
-    #     # Auto-calculate fields before saving
-    #     self.total_rent = self.number_of_sacks * self.rent_per_sack
-    #     self.remaining_rent = self.total_rent - self.advance_rent
-    #     self.total_amount_taka = (
-    #             self.total_rent +
-    #             (self.number_of_empty_sacks * self.price_of_empty_sacks) +
-    #             self.transportation +
-    #             self.given_loan
-    #     )
-    #     super().save(*args, **kwargs)

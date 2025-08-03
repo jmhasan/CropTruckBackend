@@ -10,22 +10,28 @@ from rest_framework.decorators import api_view, permission_classes
 from rest_framework.parsers import JSONParser
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.utils import timezone
 from rest_framework.views import APIView
 
 from masterdata.serializers import CustomerProfileResponseSerializer
-from ops.models import TokenNumber
+from ops.models import TokenNumber, Booking, Certificate
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
-    CertificateSerializer
+    CertificateSerializer, CertificateCreateSerializer
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.parsers import JSONParser
 from masterdata.models import CompanyProfile, CustomerProfile  # Make sure import is correct
 # Create your views here.
-
 from datetime import datetime
 
+from ops.services import CertificateService
 from utils.customlist import CustomListAPIView
 from utils.response import APIResponse
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status
+from rest_framework.permissions import IsAuthenticated
+from django.shortcuts import get_object_or_404
 
 
 @api_view(['POST'])
@@ -281,6 +287,18 @@ class BookingCreate(APIView):
                 status_code=500
             )
 
+
+
+@permission_classes([IsAuthenticated])
+class BookingList(CustomListAPIView):
+    queryset = Booking.objects.filter(xstatus='Pending').order_by('-booking_no')
+    serializer_class = BookingSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['booking_no','xstatus',]
+
+    def get_success_message(self):
+        return "Pending tokens retrieved successfully"
+
 # views.py - Additional utility view for customer profile management
 @permission_classes([IsAuthenticated])
 class CustomerProfileDetail(APIView):
@@ -330,33 +348,230 @@ class CustomerProfileDetail(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
+# @permission_classes([IsAuthenticated])
+# class CertificateCreate(APIView):
+#     def post(self, request, format=None):
+#         """Create a new common code"""
+#         try:
+#             # Create serializer with request data
+#             serializer = CertificateSerializer(data=request.data)
+#
+#             if serializer.is_valid():
+#                 # Save with additional fields if needed
+#                 instance = serializer.save(
+#                     created_by=request.user,
+#                     # Add business_id if your model has it
+#                     business_id=CompanyProfile.objects.get(pk=request.user.business_id)
+#                 )
+#                 return APIResponse.created(
+#                     data=serializer.data,
+#                     message="Certificate created successfully"
+#                 )
+#             else:
+#                 return APIResponse.validation_error(
+#                     errors=serializer.errors,
+#                     message="Certificate creation failed"
+#                 )
+#
+#         except Exception as e:
+#             return APIResponse.error(
+#                 message="Failed to create Certificate",
+#                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+#             )
+
+
 class CertificateCreate(APIView):
-    def post(self, request, format=None):
-        """Create a new common code"""
+    """
+    API endpoint for creating certificates
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        # Get business from user profile
         try:
-            # Create serializer with request data
-            serializer = CertificateSerializer(data=request.data)
+            from masterdata.models import CompanyProfile
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+            print(business)
+        except CompanyProfile.DoesNotExist:
+            return Response({
+                'success': False,
+                'message': 'User business profile not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+        except AttributeError:
+            return Response({
+                'success': False,
+                'message': 'User does not have business_id attribute'
+            }, status=status.HTTP_400_BAD_REQUEST)
 
-            if serializer.is_valid():
-                # Save with additional fields if needed
-                instance = serializer.save(
-                    created_by=request.user,
-                    # Add business_id if your model has it
-                    business_id=CompanyProfile.objects.get(pk=request.user.business_id)
-                )
-                return APIResponse.created(
-                    data=serializer.data,
-                    message="Certificate created successfully"
-                )
-            else:
-                return APIResponse.validation_error(
-                    errors=serializer.errors,
-                    message="Certificate creation failed"
+        serializer = CertificateCreateSerializer(data=request.data)
+
+        if serializer.is_valid():
+            # Validate token availability for user's business
+            token_no = serializer.validated_data.get('token_no')
+            if not TokenNumber.objects.filter(
+                    business_id=business,
+                    token_no=token_no,
+                    xstatus='Counted'
+            ).exists():
+                return Response({
+                    'success': False,
+                    'message': f'Token {token_no} is not Counted or already used for your business'
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+            try:
+                result = CertificateService.create_certificate(
+                    validated_data=serializer.validated_data,
+                    user=request.user
                 )
 
-        except Exception as e:
-            return APIResponse.error(
-                message="Failed to create Certificate",
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
-            )
+                certificate = result['certificate']
+                customer = result['customer']
+                is_new_customer = result['is_new_customer']
+                business = result['business']
+
+                # Serialize the response data
+                certificate_serializer = CertificateSerializer(certificate)
+                customer_serializer = CustomerProfileSerializer(customer)
+
+                return Response({
+                    'success': True,
+                    'message': 'Certificate created successfully',
+                    'data': {
+                        'certificate': certificate_serializer.data,
+                        'customer': customer_serializer.data,
+                        'business_name': business.name if hasattr(business, 'name') else str(business),
+                        'is_new_customer': is_new_customer
+                    }
+                }, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response({
+                    'success': False,
+                    'message': str(e)
+                }, status=status.HTTP_400_BAD_REQUEST)
+
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+
+class CertificateListAPIView(APIView):
+    """
+    API endpoint for listing certificates
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request):
+        # Get user's business
+        try:
+            from masterdata.models import CompanyProfile
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return Response({
+                'success': False,
+                'message': 'User business profile not found'
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        # Get query parameters
+        xmobile = request.query_params.get('xmobile')
+        token_no = request.query_params.get('token_no')
+
+        # Build queryset - filter by user's business
+        queryset = Certificate.objects.filter(business_id=business)
+
+        if xmobile:
+            queryset = queryset.filter(xmobile=xmobile)
+        if token_no:
+            queryset = queryset.filter(token_no=token_no)
+
+        # Order by creation date
+        queryset = queryset.order_by('-created_at')
+
+        serializer = CertificateSerializer(queryset, many=True)
+
+        return Response({
+            'success': True,
+            'business_name': business.name if hasattr(business, 'name') else str(business),
+            'count': queryset.count(),
+            'data': serializer.data
+        }, status=status.HTTP_200_OK)
+
+
+class CertificateDetailAPIView(APIView):
+    """
+    API endpoint for retrieving, updating, and deleting a specific certificate
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_object(self, token_no, user):
+        # Get user's business
+        try:
+            from masterdata.models import CompanyProfile
+            business = CompanyProfile.objects.get(pk=user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return None, "User business profile not found"
+
+        try:
+            certificate = Certificate.objects.get(business_id=business, token_no=token_no)
+            return certificate, None
+        except Certificate.DoesNotExist:
+            return None, "Certificate not found for your business"
+
+    def get(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return Response({
+                'success': False,
+                'message': error
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CertificateSerializer(certificate)
+
+        return Response({
+            'success': True,
+            'data': serializer.data
+        }, status=status.HTTP_200_OK)
+
+    def put(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return Response({
+                'success': False,
+                'message': error
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        serializer = CertificateSerializer(certificate, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save(updated_by=request.user, updated_at=timezone.now())
+            return Response({
+                'success': True,
+                'message': 'Certificate updated successfully',
+                'data': serializer.data
+            }, status=status.HTTP_200_OK)
+
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+
+    def delete(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return Response({
+                'success': False,
+                'message': error
+            }, status=status.HTTP_404_NOT_FOUND)
+
+        certificate.delete()
+
+        return Response({
+            'success': True,
+            'message': 'Certificate deleted successfully'
+        }, status=status.HTTP_204_NO_CONTENT)

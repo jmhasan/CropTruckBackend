@@ -207,8 +207,60 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 
         return booking
 
+
 class CertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certificate
         fields = '__all__'
-        read_only_fields = ['business_id', 'zactive']
+        read_only_fields = ('created_by', 'updated_by', 'created_at', 'updated_at')
+
+
+class CertificateCreateSerializer(serializers.Serializer):
+    # Required fields (business_id will be handled from user profile)
+    token_no = serializers.CharField(max_length=10)
+    xmobile = serializers.CharField(max_length=20)  # Mandatory
+    customer_name = serializers.CharField(max_length=255)
+    number_of_sacks = serializers.IntegerField()
+    number_of_empty_sacks = serializers.IntegerField()
+
+    # Optional certificate fields
+    certificate_no = serializers.CharField(max_length=20, required=False, allow_blank=True)
+    booking_no = serializers.CharField(max_length=50, required=False, allow_blank=True)
+    customer_code = serializers.CharField(max_length=50, required=False, allow_blank=True)
+
+    # Customer address fields
+    father_name = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    division_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    district_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    upazila_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    union_name = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    village = serializers.CharField(max_length=150, required=False, allow_blank=True)
+    post_office = serializers.CharField(max_length=100, required=False, allow_blank=True)
+
+    # Business fields
+    potato_type = serializers.CharField(max_length=100, required=False, allow_blank=True)
+    rent_per_sack = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    total_rent = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    advance_rent = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    remaining_rent = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    price_of_empty_sacks = serializers.DecimalField(max_digits=10, decimal_places=2, required=False)
+    transportation = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    given_loan = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+    total_amount_taka = serializers.DecimalField(max_digits=15, decimal_places=2, required=False)
+
+    def validate_xmobile(self, value):
+        """Validate mobile number format"""
+        if not value:
+            raise serializers.ValidationError("Mobile number is mandatory for certificate creation.")
+
+        # Add your mobile number validation logic here
+        if len(value) < 10:
+            raise serializers.ValidationError("Mobile number must be at least 10 digits.")
+
+        return value
+
+    def validate_token_no(self, value):
+        """Validate token format"""
+        if not value:
+            raise serializers.ValidationError("Token number is required.")
+        return value

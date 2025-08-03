@@ -14,6 +14,7 @@ urlpatterns = [
     path('customers/<str:customer_code>/', views.CustomerProfileDetail.as_view(), name='customer_detail'),
     # Create booking (automatically handles customer)
     path('bookings/create/', views.BookingCreate.as_view(), name='booking_create'),
+    path('bookings/list/', views.BookingList.as_view(), name='booking -list'),
     path('certificates/create/', views.CertificateCreate.as_view(), name='certificate-create'),
 
 
