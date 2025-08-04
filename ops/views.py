@@ -294,7 +294,7 @@ class BookingList(CustomListAPIView):
     queryset = Booking.objects.filter(xstatus='Pending').order_by('-booking_no')
     serializer_class = BookingSerializer
     filter_backends = [DjangoFilterBackend]
-    filterset_fields = ['booking_no','xstatus',]
+    filterset_fields = ['booking_no','xstatus','xmobile',]
 
     def get_success_message(self):
         return "Pending tokens retrieved successfully"

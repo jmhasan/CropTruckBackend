@@ -134,6 +134,7 @@ class Certificate(models.Model):
 
     created_at = models.DateTimeField(blank=True, null=True)
     updated_at = models.DateTimeField(blank=True, null=True)
+    xstatus = models.CharField(max_length=50,default='Open')
 
     class Meta:
         managed = False
