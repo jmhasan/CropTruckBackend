@@ -491,10 +491,10 @@ class CertificateDetailAPIView(APIView):
 
 
 class BulkCreateCertificateDetailsView(APIView):
-    def post(self, request):
+    def post(self, request, token_no):
         serializer = CertificateDetailsBulkCreateSerializer(
             data=request.data,
-            context={'request': request}
+            context={'request': request, 'token_no': token_no}
         )
 
         if serializer.is_valid():
@@ -506,23 +506,18 @@ class BulkCreateCertificateDetailsView(APIView):
                     many=True
                 )
 
-                return Response({
-                    'success': True,
-                    'message': f'Successfully created {len(created_details)} certificate details',
-                    'created_count': len(created_details),
-                    'details': response_serializer.data
-                }, status=status.HTTP_201_CREATED)
-
+                return APIResponse.created(
+                    data=response_serializer.data,
+                    message=f'Successfully created {len(created_details)} certificate details'
+                )
             except Exception as e:
-                return Response({
-                    'success': False,
-                    'message': 'Failed to create certificate details',
-                    'error': str(e)
-                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+                return APIResponse.error(
+                    message=f'Failed to create certificate details{str(e)}',
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
 
-        return Response({
-            'success': False,
-            'message': 'Validation failed',
-            'errors': serializer.errors
-        }, status=status.HTTP_400_BAD_REQUEST)
+        return APIResponse.validation_error(
+            message =  'Validation failed',
+            errors = serializer.errors
+        )
 
