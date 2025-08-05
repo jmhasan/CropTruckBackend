@@ -136,6 +136,9 @@ class Certificate(models.Model):
     updated_at = models.DateTimeField(blank=True, null=True)
     xstatus = models.CharField(max_length=50,default='Open')
 
+    posted_by = models.IntegerField()
+    posted_at = models.DateTimeField(blank=True, null=True)
+
     class Meta:
         managed = False
         db_table = 'certificate'
