@@ -16,7 +16,8 @@ from rest_framework.views import APIView
 from masterdata.serializers import CustomerProfileResponseSerializer
 from ops.models import TokenNumber, Booking, Certificate
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
-    CertificateSerializer, CertificateCreateSerializer
+    CertificateSerializer, CertificateCreateSerializer, CertificateDetailsBulkCreateSerializer, \
+    CertificateDetailsResponseSerializer
 from django.http import HttpResponse, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from rest_framework.parsers import JSONParser
@@ -417,38 +418,15 @@ class CertificateCreateAPIView(APIView):
             )
 
 
+
 class CertificateListAPIView(CustomListAPIView):
-    def get_queryset(self):
-        """
-        Filter certificates by user's business and query parameters.
-        """
-        user = self.request.user
-
-        # Base queryset
-        queryset = Certificate.objects.all()
-
-        # Filter by business_id
-        if hasattr(user, 'business_id') and user.business_id:
-            queryset = queryset.filter(business_id=user.business_id)
-        else:
-            # Return empty queryset if business_id not found
-            return Certificate.objects.none()
-
-        # Optional filters from query params
-        xmobile = self.request.query_params.get('xmobile')
-        token_no = self.request.query_params.get('token_no')
-
-        if xmobile:
-            queryset = queryset.filter(xmobile=xmobile)
-        if token_no:
-            queryset = queryset.filter(token_no=token_no)
-
-        return queryset.order_by('-created_at')
+    queryset = Certificate.objects.all().order_by('-token_no')
+    serializer_class = CertificateSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['xmobile','xstatus','token_no',]
 
     def get_success_message(self):
         return "Certificates retrieved successfully"
-
-
 
 class CertificateDetailAPIView(APIView):
     def get_object(self, token_no, user):
@@ -510,3 +488,41 @@ class CertificateDetailAPIView(APIView):
         return APIResponse.deleted(
             message="Certificate deleted successfully"
         )
+
+
+class BulkCreateCertificateDetailsView(APIView):
+    def post(self, request):
+        serializer = CertificateDetailsBulkCreateSerializer(
+            data=request.data,
+            context={'request': request}
+        )
+
+        if serializer.is_valid():
+            try:
+                created_details = serializer.save()
+
+                response_serializer = CertificateDetailsResponseSerializer(
+                    created_details,
+                    many=True
+                )
+
+                return Response({
+                    'success': True,
+                    'message': f'Successfully created {len(created_details)} certificate details',
+                    'created_count': len(created_details),
+                    'details': response_serializer.data
+                }, status=status.HTTP_201_CREATED)
+
+            except Exception as e:
+                return Response({
+                    'success': False,
+                    'message': 'Failed to create certificate details',
+                    'error': str(e)
+                }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+        return Response({
+            'success': False,
+            'message': 'Validation failed',
+            'errors': serializer.errors
+        }, status=status.HTTP_400_BAD_REQUEST)
+

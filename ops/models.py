@@ -142,3 +142,27 @@ class Certificate(models.Model):
 
     def __str__(self):
         return str(self.token_no)
+
+
+class CertificateDetails(models.Model):
+    pk = models.CompositePrimaryKey('business_id_id', 'token_no', 'xitem', 'xunit', 'xfloor', 'xpocket')
+    business_id = models.ForeignKey('masterdata.CompanyProfile', on_delete=models.DO_NOTHING)
+    token_no = models.CharField(max_length=10)
+    certificate_no = models.CharField(max_length=20, blank=True, null=True)
+    xitem = models.CharField(max_length=50, default='01-01-001-0001')
+    xunit = models.CharField(max_length=100)
+    xfloor = models.CharField(max_length=100)
+    xpocket = models.CharField(max_length=100)
+    potato_type = models.CharField(max_length=100, blank=True, null=True)
+    number_of_sacks = models.IntegerField()
+    rent_per_sack = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
+    total_rent = models.DecimalField(max_digits=15, decimal_places=2, blank=True, null=True)
+    created_by = models.ForeignKey('user.CustomUser', on_delete=models.DO_NOTHING, blank=True, null=True)
+    updated_by = models.ForeignKey('user.CustomUser', on_delete=models.DO_NOTHING,
+                                   related_name='certificate_details_updated_by_set', blank=True, null=True)
+    created_at = models.DateTimeField(blank=True, null=True)
+    updated_at = models.DateTimeField(blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'certificate_details'

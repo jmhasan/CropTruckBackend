@@ -19,6 +19,7 @@ urlpatterns = [
     path('certificates/create/', views.CertificateCreateAPIView.as_view(), name='certificate-create'),
     path('certificates/list/', views.CertificateListAPIView.as_view(), name='certificate-list'),
     path('certificates/<str:token_no>/', views.CertificateDetailAPIView.as_view(), name='certificate-detail'),
+    path('certificate-details/create/', views.BulkCreateCertificateDetailsView.as_view(), name='bulk-create-certificate-details'),
 
 
 

@@ -1,8 +1,9 @@
 from django.core.validators import RegexValidator
 from rest_framework import serializers
-
+from django.utils import timezone
+from django.db import transaction
 from masterdata.models import CustomerProfile
-from ops.models import TokenNumber, Booking, Certificate
+from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
 
 
 class TokenSerializer(serializers.ModelSerializer):
@@ -211,7 +212,8 @@ class BookingCreateSerializer(serializers.ModelSerializer):
 class CertificateSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certificate
-        fields = '__all__'
+        # fields = '__all__'
+        exclude = ['pk']
         read_only_fields = ('created_by', 'updated_by', 'created_at', 'updated_at')
 
 
@@ -298,3 +300,138 @@ class CertificateCreateSerializer(serializers.Serializer):
         if not value:
             raise serializers.ValidationError("Token number is required.")
         return value
+
+
+class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
+    """Serializer for bulk creating certificate details"""
+
+    # Individual detail serializer
+    class CertificateDetailItemSerializer(serializers.ModelSerializer):
+        class Meta:
+            model = CertificateDetails
+            fields = [
+                'business_id',
+                'token_no',
+                'certificate_no',
+                'xitem',
+                'xunit',
+                'xfloor',
+                'xpocket',
+                'potato_type',
+                'number_of_sacks',
+                'rent_per_sack'
+            ]
+
+        def validate_number_of_sacks(self, value):
+            if value <= 0:
+                raise serializers.ValidationError("Number of sacks must be greater than 0")
+            return value
+
+        def validate_rent_per_sack(self, value):
+            if value is not None and value <= 0:
+                raise serializers.ValidationError("Rent per sack must be greater than 0")
+            return value
+
+    # Main bulk serializer
+    details = CertificateDetailItemSerializer(many=True)
+
+    def validate_details(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one detail is required")
+
+        if len(value) > 1000:  # Limit bulk size
+            raise serializers.ValidationError("Cannot create more than 1000 details at once")
+
+        # Check for duplicate composite keys in the batch
+        seen_keys = set()
+        for i, detail in enumerate(value):
+            key = (
+                detail.get('business_id').business_id if detail.get('business_id') else None,
+                detail.get('token_no'),
+                detail.get('xitem'),
+                detail.get('xunit'),
+                detail.get('xfloor'),
+                detail.get('xpocket')
+            )
+
+            if key in seen_keys:
+                raise serializers.ValidationError({
+                    f'details[{i}]': f"Duplicate certificate detail found at index {i}"
+                })
+            seen_keys.add(key)
+
+        return value
+
+    def validate(self, data):
+        """Additional validation for the entire batch"""
+        details = data.get('details', [])
+
+        # Check if any of these composite keys already exist in database
+        existing_keys = []
+        for i, detail in enumerate(details):
+            existing = CertificateDetails.objects.filter(
+                business_id=detail.get('business_id'),
+                token_no=detail.get('token_no'),
+                xitem=detail.get('xitem'),
+                xunit=detail.get('xunit'),
+                xfloor=detail.get('xfloor'),
+                xpocket=detail.get('xpocket')
+            ).exists()
+
+            if existing:
+                existing_keys.append(i)
+
+        if existing_keys:
+            raise serializers.ValidationError({
+                'details': f"Certificate details at indexes {existing_keys} already exist in database"
+            })
+
+        return data
+
+    def create(self, validated_data):
+        details_data = validated_data['details']
+        created_details = []
+        user = self.context['request'].user
+        current_time = timezone.now()
+
+        with transaction.atomic():
+            for detail_data in details_data:
+                # Auto-calculate total_rent
+                if detail_data.get('number_of_sacks') and detail_data.get('rent_per_sack'):
+                    detail_data['total_rent'] = (
+                            detail_data['number_of_sacks'] * detail_data['rent_per_sack']
+                    )
+
+                # Set audit fields
+                detail_data['created_by'] = user
+                detail_data['created_at'] = current_time
+
+                detail = CertificateDetails.objects.create(**detail_data)
+                created_details.append(detail)
+
+        return created_details
+
+
+# Response serializer for showing created details
+class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
+    business_name = serializers.CharField(source='business_id.company_name', read_only=True)
+    created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
+
+    class Meta:
+        model = CertificateDetails
+        fields = [
+            'business_id',
+            'business_name',
+            'token_no',
+            'certificate_no',
+            'xitem',
+            'xunit',
+            'xfloor',
+            'xpocket',
+            'potato_type',
+            'number_of_sacks',
+            'rent_per_sack',
+            'total_rent',
+            'created_by_name',
+            'created_at'
+        ]
