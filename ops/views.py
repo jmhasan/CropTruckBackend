@@ -1,42 +1,27 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
 from django.db import transaction
-from django.http import JsonResponse
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.parsers import JSONParser
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
 from rest_framework.utils import timezone
-from rest_framework.views import APIView
-
 from masterdata.serializers import CustomerProfileResponseSerializer
-from ops.models import TokenNumber, Booking, Certificate
+from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
     CertificateSerializer, CertificateCreateSerializer, CertificateDetailsBulkCreateSerializer, \
-    CertificateDetailsResponseSerializer
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.parsers import JSONParser
+    CertificateDetailsResponseSerializer, CertificateReadyListSerializer
 from masterdata.models import CompanyProfile, CustomerProfile  # Make sure import is correct
-# Create your views here.
 from datetime import datetime
-
 from ops.services import CertificateService
 from utils.customlist import CustomListAPIView
 from utils.response import APIResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
-from rest_framework import status
+from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
-from django.shortcuts import get_object_or_404
+
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 def token_generate(request):
     try:
         count = int(request.data.get('number_of_tokens', 1))
@@ -78,13 +63,6 @@ def token_generate(request):
     }, status=status.HTTP_201_CREATED)
 
 
-# class PendingToken(generics.ListAPIView):
-#     queryset = TokenNumber.objects.filter(xstatus='Pending').order_by('token_no')
-#     serializer_class = TokenSerializer
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_fields = ['token_no',]
-
-@permission_classes([IsAuthenticated])
 class PendingToken(CustomListAPIView):
     queryset = TokenNumber.objects.filter(xstatus='Pending').order_by('token_no')
     serializer_class = TokenSerializer
@@ -95,7 +73,6 @@ class PendingToken(CustomListAPIView):
         return "Pending tokens retrieved successfully"
 
 
-@permission_classes([IsAuthenticated])
 class CountedToken(CustomListAPIView):
     queryset = TokenNumber.objects.filter(xstatus='Counted').order_by('token_no')
     serializer_class = TokenSerializer
@@ -106,7 +83,6 @@ class CountedToken(CustomListAPIView):
         return "Counted tokens retrieved successfully"
 
 @api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAuthenticated])
 def sack_number_input(request, token_no):
     business_id = request.user.business_id
     try:
@@ -140,8 +116,6 @@ def sack_number_input(request, token_no):
         snippet.delete()
         return APIResponse.deleted("Token deleted successfully")
 
-
-@permission_classes([IsAuthenticated])
 class CustomerSearch(APIView):
     """
     Search for existing customer by mobile number
@@ -209,11 +183,7 @@ class CustomerSearch(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
 class BookingCreate(APIView):
-    """
-    Create booking and automatically handle customer creation/update
-    """
 
     def post(self, request, format=None):
         try:
@@ -289,8 +259,6 @@ class BookingCreate(APIView):
             )
 
 
-
-@permission_classes([IsAuthenticated])
 class BookingList(CustomListAPIView):
     queryset = Booking.objects.filter(xstatus='Pending').order_by('-booking_no')
     serializer_class = BookingSerializer
@@ -300,8 +268,8 @@ class BookingList(CustomListAPIView):
     def get_success_message(self):
         return "Pending tokens retrieved successfully"
 
-# views.py - Additional utility view for customer profile management
-@permission_classes([IsAuthenticated])
+
+
 class CustomerProfileDetail(APIView):
     """
     Get customer profile by customer code
@@ -418,7 +386,6 @@ class CertificateCreateAPIView(APIView):
             )
 
 
-
 class CertificateListAPIView(CustomListAPIView):
     queryset = Certificate.objects.all().order_by('-token_no')
     serializer_class = CertificateSerializer
@@ -427,6 +394,29 @@ class CertificateListAPIView(CustomListAPIView):
 
     def get_success_message(self):
         return "Certificates retrieved successfully"
+
+
+class CertificateReadyList(CustomListAPIView):
+    queryset = Certificate.objects.all().order_by('-token_no')
+    serializer_class = CertificateReadyListSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['xmobile', 'xstatus', 'token_no']
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        token_numbers = list(queryset.values_list('token_no', flat=True))
+        count = len(token_numbers)
+
+        return Response({
+            "success": True,
+            "status_code": 200,
+            "message": self.get_success_message(),
+            "data": token_numbers,
+            "meta": {
+                "count": count
+            }
+        })
+
 
 class CertificateDetailAPIView(APIView):
     def get_object(self, token_no, user):
@@ -521,3 +511,72 @@ class BulkCreateCertificateDetailsView(APIView):
             errors = serializer.errors
         )
 
+
+class CertificateManage(APIView):
+    def get_object(self, token_no, user):
+        # 1️⃣ Validate user's business
+        try:
+            business = CompanyProfile.objects.get(pk=user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return None, "User business profile not found"
+
+        # 2️⃣ Retrieve certificate for this business
+        try:
+            certificate = Certificate.objects.get(business_id=business, token_no=token_no)
+            return certificate, None
+        except Certificate.DoesNotExist:
+            return None, "Certificate not found for your business"
+
+    # --------------- GET (Retrieve) ----------------
+    def get(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate)
+        return APIResponse.success(
+            data=serializer.data,
+            message="Certificate retrieved successfully"
+        )
+
+    # --------------- PUT (Update) ----------------
+    def put(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save(updated_by=request.user, updated_at=timezone.now())
+            return APIResponse.updated(
+                data=serializer.data,
+                message="Certificate updated successfully"
+            )
+
+        return APIResponse.validation_error(
+            errors=serializer.errors,
+            message="Validation failed"
+        )
+
+    # --------------- DELETE ----------------
+    def delete(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        certificate.delete()
+        return APIResponse.deleted(
+            message="Certificate deleted successfully"
+        )
+
+
+class CertificateDetailManage(generics.ListAPIView):
+    serializer_class = CertificateDetailsResponseSerializer
+
+    def get_queryset(self):
+        token_no = self.kwargs.get('token_no')
+        return CertificateDetails.objects.filter(token_no=token_no)

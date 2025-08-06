@@ -11,8 +11,6 @@ from masterdata.models import CompanyProfile
 from ops.models import Certificate, CertificateDetails
 from utils.response import APIResponse
 
-
-
 class CertificatePost(APIView):
     """
     Post stock entries from certificate and certificate_details into imtrn table
@@ -46,7 +44,7 @@ class CertificatePost(APIView):
                 }, status=status.HTTP_400_BAD_REQUEST)
 
             # 4️⃣ Validate certificate status (adjust valid statuses as needed)
-            valid_statuses = ['Approved', 'Ready', 'Verified','Open']  # Define your valid statuses
+            valid_statuses = ['Open', 'Ready', 'Loaded']  # Define your valid statuses
             if hasattr(certificate, 'xstatus') and certificate.xstatus not in valid_statuses:
                 return Response({
                     'success': False,

@@ -216,6 +216,11 @@ class CertificateSerializer(serializers.ModelSerializer):
         exclude = ['pk']
         read_only_fields = ('created_by', 'updated_by', 'created_at', 'updated_at')
 
+class CertificateReadyListSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Certificate
+        fields = ['token_no']
+
 
 class CertificateCreateSerializer(serializers.Serializer):
     # Required fields (business_id will be handled from user profile)
@@ -301,129 +306,6 @@ class CertificateCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Token number is required.")
         return value
 
-
-# class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
-#     """Serializer for bulk creating certificate details"""
-#
-#     # Individual detail serializer
-#     class CertificateDetailItemSerializer(serializers.ModelSerializer):
-#         class Meta:
-#             model = CertificateDetails
-#             fields = [
-#                 'business_id',
-#                 'certificate_no',
-#                 'xitem',
-#                 'xunit',
-#                 'xfloor',
-#                 'xpocket',
-#                 'potato_type',
-#                 'number_of_sacks',
-#                 'rent_per_sack'
-#             ]
-#
-#         def validate_number_of_sacks(self, value):
-#             if value <= 0:
-#                 raise serializers.ValidationError("Number of sacks must be greater than 0")
-#             return value
-#
-#         def validate_rent_per_sack(self, value):
-#             if value is not None and value <= 0:
-#                 raise serializers.ValidationError("Rent per sack must be greater than 0")
-#             return value
-#
-#     # Main bulk serializer
-#     details = CertificateDetailItemSerializer(many=True)
-#
-#     def validate_details(self, value):
-#         if not value:
-#             raise serializers.ValidationError("At least one detail is required")
-#
-#         if len(value) > 1000:  # Limit bulk size
-#             raise serializers.ValidationError("Cannot create more than 1000 details at once")
-#
-#         # Check for duplicate composite keys in the batch
-#         seen_keys = set()
-#         for i, detail in enumerate(value):
-#             key = (
-#                 detail.get('business_id').business_id if detail.get('business_id') else None,
-#                 detail.get('token_no'),
-#                 detail.get('xitem'),
-#                 detail.get('xunit'),
-#                 detail.get('xfloor'),
-#                 detail.get('xpocket')
-#             )
-#
-#             if key in seen_keys:
-#                 raise serializers.ValidationError({
-#                     f'details[{i}]': f"Duplicate certificate detail found at index {i}"
-#                 })
-#             seen_keys.add(key)
-#
-#         return value
-#
-#     def validate(self, data):
-#         """Additional validation for the entire batch"""
-#         request = self.context['request']
-#         user = request.user
-#         token_no = self.context['token_no']
-#
-#         # Resolve business_id from logged-in user
-#         try:
-#             business_id = CompanyProfile.objects.get(pk=user.business_id).business_id
-#         except CompanyProfile.DoesNotExist:
-#             raise serializers.ValidationError("User business profile not found")
-#
-#         details = data.get('details', [])
-#
-#         # Check if any of these composite keys already exist in database
-#         existing_keys = []
-#         for i, detail in enumerate(details):
-#             existing = CertificateDetails.objects.filter(
-#                 business_id=business_id,
-#                 token_no=token_no,
-#                 xitem=detail.get('xitem'),
-#                 xunit=detail.get('xunit'),
-#                 xfloor=detail.get('xfloor'),
-#                 xpocket=detail.get('xpocket')
-#             ).exists()
-#
-#             if existing:
-#                 existing_keys.append(i)
-#
-#         if existing_keys:
-#             raise serializers.ValidationError({
-#                 'details': f"Certificate details at indexes {existing_keys} already exist in database"
-#             })
-#
-#         return data
-#
-#     def create(self, validated_data):
-#         details_data = validated_data['details']
-#         created_details = []
-#         user = self.context['request'].user
-#         token_no = self.context['token_no']
-#         current_time = timezone.now()
-#
-#
-#         with transaction.atomic():
-#             for detail_data in details_data:
-#                 # Auto-calculate total_rent
-#                 if detail_data.get('number_of_sacks') and detail_data.get('rent_per_sack'):
-#                     detail_data['total_rent'] = (
-#                             detail_data['number_of_sacks'] * detail_data['rent_per_sack']
-#                     )
-#
-#                 # Set audit fields
-#                 detail_data['created_by'] = user
-#                 detail_data['created_at'] = current_time
-#                 detail_data['token_no'] = token_no
-#
-#                 detail = CertificateDetails.objects.create(**detail_data)
-#                 created_details.append(detail)
-#
-#         return created_details
-
-
 class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
     """Serializer for bulk creating certificate details"""
 
@@ -438,8 +320,7 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
                 'xfloor',
                 'xpocket',
                 'potato_type',
-                'number_of_sacks',
-                'rent_per_sack'
+                'number_of_sacks'
             ]
 
         def validate_number_of_sacks(self, value):
@@ -447,10 +328,10 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Number of sacks must be greater than 0")
             return value
 
-        def validate_rent_per_sack(self, value):
-            if value is not None and value <= 0:
-                raise serializers.ValidationError("Rent per sack must be greater than 0")
-            return value
+        # def validate_rent_per_sack(self, value):
+        #     if value is not None and value <= 0:
+        #         raise serializers.ValidationError("Rent per sack must be greater than 0")
+        #     return value
 
     # Main bulk serializer
     details = CertificateDetailItemSerializer(many=True)
@@ -570,7 +451,7 @@ class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
     class Meta:
         model = CertificateDetails
         fields = [
-            'business_id',
+            'business_id_id',
             'business_name',
             'token_no',
             'certificate_no',

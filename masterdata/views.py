@@ -16,8 +16,6 @@ from .models import CustomerProfile, CompanyProfile
 
 
 
-# Create your views here.
-@permission_classes([IsAuthenticated])
 class CommonCodesAdd(APIView):
     def post(self, request, format=None):
         """Create a new common code"""
@@ -48,7 +46,7 @@ class CommonCodesAdd(APIView):
                 status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )
 
-@permission_classes([IsAuthenticated])
+
 class CommonCodesList(CustomListAPIView):
     queryset = CommonCodes.objects.filter(zactive=True)
     serializer_class = CommonCodesSerializer
@@ -56,7 +54,6 @@ class CommonCodesList(CustomListAPIView):
     filterset_fields = ['xtype', ]
 
 
-@permission_classes([IsAuthenticated])
 class DivisionListView(APIView):
     """Get all divisions for a business"""
     def get(self, request, format=None):
@@ -93,7 +90,7 @@ class DivisionListView(APIView):
                 status_code=500
             )
 
-@permission_classes([IsAuthenticated])
+
 class GeoLocationAll(generics.ListAPIView):
     queryset = GeoLocation.objects.all()
     serializer_class = GeoLocationSerializer
@@ -101,7 +98,6 @@ class GeoLocationAll(generics.ListAPIView):
     filterset_fields = ['division_name',]
 
 
-@permission_classes([IsAuthenticated])
 class DistrictListView(APIView):
     """Get all districts for a given division"""
 
@@ -139,7 +135,6 @@ class DistrictListView(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
 class UpazilaListView(APIView):
     """Get all upazilas for a given division and district"""
 
@@ -180,7 +175,6 @@ class UpazilaListView(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
 class UnionListView(APIView):
     """Get all unions for a given division, district, and upazila"""
 
@@ -223,9 +217,6 @@ class UnionListView(APIView):
             )
 
 
-
-
-@permission_classes([IsAuthenticated])
 class CustomerProfileCreate(APIView):
     """
     POST API for creating customer profile with geo-location validation
@@ -281,7 +272,6 @@ class CustomerProfileCreate(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
 class CustomerProfileUpdate(APIView):
     """
     PUT/PATCH API for updating customer profile
@@ -361,8 +351,6 @@ class CustomerProfileUpdate(APIView):
             )
 
 
-# List view with search and filtering
-@permission_classes([IsAuthenticated])
 class CustomerProfileList(APIView):
     """
     GET: List customers with filtering and search

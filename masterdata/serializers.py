@@ -6,7 +6,7 @@ from masterdata.models import CommonCodes, GeoLocation
 class CommonCodesSerializer(serializers.ModelSerializer):
     class Meta:
         model = CommonCodes
-        exclude = ['pk']
+        fields = ['xtype', 'xcode']
         read_only_fields = ['business_id', 'zactive']
 
 class GeoLocationSerializer(serializers.ModelSerializer):
