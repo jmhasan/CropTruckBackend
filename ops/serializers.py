@@ -1,9 +1,10 @@
 from django.core.validators import RegexValidator
-from rest_framework import serializers
-from django.utils import timezone
-from django.db import transaction
 from masterdata.models import CustomerProfile, ItemMaster, CompanyProfile
 from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
+from rest_framework import serializers
+from django.db import models, transaction
+from django.utils import timezone
+from .models import CertificateDetails, Certificate
 
 
 class TokenSerializer(serializers.ModelSerializer):
@@ -306,6 +307,7 @@ class CertificateCreateSerializer(serializers.Serializer):
             raise serializers.ValidationError("Token number is required.")
         return value
 
+
 class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
     """Serializer for bulk creating certificate details"""
 
@@ -351,7 +353,8 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
         # Resolve business_id from user
         from masterdata.models import CompanyProfile
         try:
-            business_id = CompanyProfile.objects.get(pk=user.business_id).business_id
+            business_profile = CompanyProfile.objects.get(pk=user.business_id)
+            business_id = business_profile.business_id
         except CompanyProfile.DoesNotExist:
             raise serializers.ValidationError("User business profile not found")
 
@@ -379,9 +382,12 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
         user = request.user
         token_no = self.context['token_no']
 
+        # Import here to avoid circular imports
         from masterdata.models import CompanyProfile
+
         try:
-            business_id = CompanyProfile.objects.get(pk=user.business_id).business_id
+            business_profile = CompanyProfile.objects.get(pk=user.business_id)
+            business_id = business_profile.business_id
         except CompanyProfile.DoesNotExist:
             raise serializers.ValidationError("User business profile not found")
 
@@ -391,7 +397,7 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
         existing_keys = []
         for i, detail in enumerate(details):
             existing = CertificateDetails.objects.filter(
-                business_id=business_id,
+                business_id=business_id,  # Use business_id string/integer
                 token_no=token_no,
                 xitem=detail.get('xitem'),
                 xunit=detail.get('xunit'),
@@ -405,6 +411,60 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
         if existing_keys:
             raise serializers.ValidationError({
                 'details': f"Certificate details at indexes {existing_keys} already exist in database"
+            })
+
+        # ===== QUANTITY VALIDATION AGAINST CERTIFICATE =====
+        # Get the certificate to validate against (Alternative approach)
+        try:
+            certificate = Certificate.objects.get(
+                token_no=token_no,
+                business_id=business_id  # Use business_id string/integer
+            )
+        except Certificate.DoesNotExist:
+            raise serializers.ValidationError(f"Certificate {token_no} not found for your business")
+
+        # Debug: Print certificate details (remove in production)
+        print(
+            f"DEBUG: Certificate {token_no} found, no_of_sack: {getattr(certificate, 'no_of_sack', 'FIELD_NOT_FOUND')}")
+
+        # Get existing details quantity for this certificate (Alternative approach)
+        existing_details_qty = CertificateDetails.objects.filter(
+            business_id=business_id,  # Use business_id string/integer
+            token_no=token_no
+        ).aggregate(
+            total_existing=models.Sum('number_of_sacks')
+        )['total_existing'] or 0
+
+        # Calculate new details quantity
+        new_details_qty = sum(detail.get('number_of_sacks', 0) for detail in details)
+
+        # Total quantity after adding new details
+        total_details_qty = existing_details_qty + new_details_qty
+
+        # Get certificate total quantity - handle different possible field names
+        certificate_total_qty = getattr(certificate, 'number_of_sacks', None) or getattr(certificate, 'number_of_sacks',
+                                                                                    None) or 0
+
+        # Debug prints (remove in production)
+        print(f"DEBUG: Business ID: {business_id}")
+        print(f"DEBUG: Token No: {token_no}")
+        print(f"DEBUG: Existing details qty: {existing_details_qty}")
+        print(f"DEBUG: New details qty: {new_details_qty}")
+        print(f"DEBUG: Total details qty: {total_details_qty}")
+        print(f"DEBUG: Certificate total qty: {certificate_total_qty}")
+
+        # Validate quantity constraint
+        if certificate_total_qty <= 0:
+            raise serializers.ValidationError({
+                'details': f"Certificate {token_no} has no valid quantity set (no_of_sack: {certificate_total_qty})"
+            })
+
+        if total_details_qty > certificate_total_qty:
+            raise serializers.ValidationError({
+                'details': f"Total quantity in certificate details ({total_details_qty}) cannot exceed "
+                           f"certificate total quantity ({certificate_total_qty}). "
+                           f"Existing details quantity: {existing_details_qty}, "
+                           f"New details quantity: {new_details_qty}"
             })
 
         return data
@@ -430,7 +490,7 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
                 # Auto-calculate total_rent
                 if detail_data.get('number_of_sacks') and detail_data.get('rent_per_sack'):
                     detail_data['total_rent'] = (
-                        detail_data['number_of_sacks'] * detail_data['rent_per_sack']
+                            detail_data['number_of_sacks'] * detail_data['rent_per_sack']
                     )
 
                 # Audit fields
@@ -441,8 +501,6 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
                 created_details.append(detail)
 
         return created_details
-
-
 
 class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
     business_name = serializers.CharField(source='business_id.company_name', read_only=True)

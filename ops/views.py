@@ -1,16 +1,16 @@
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import transaction
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.utils import timezone
+
+from inventory.models import Imtrn
 from masterdata.serializers import CustomerProfileResponseSerializer
 from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
     CertificateSerializer, CertificateCreateSerializer, CertificateDetailsBulkCreateSerializer, \
     CertificateDetailsResponseSerializer, CertificateReadyListSerializer
 from masterdata.models import CompanyProfile, CustomerProfile  # Make sure import is correct
-from datetime import datetime
 from ops.services import CertificateService
 from utils.customlist import CustomListAPIView
 from utils.response import APIResponse
@@ -18,7 +18,12 @@ from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
 from rest_framework.permissions import IsAuthenticated
+from django.db import transaction
+from django.utils import timezone
+from datetime import datetime
+import logging
 
+logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
@@ -489,28 +494,114 @@ class BulkCreateCertificateDetailsView(APIView):
 
         if serializer.is_valid():
             try:
-                created_details = serializer.save()
+                with transaction.atomic():
+                    # 1️⃣ Create certificate details first
+                    created_details = serializer.save()
 
+                    # 2️⃣ Get certificate and business info for imtrn
+                    try:
+                        business = CompanyProfile.objects.get(pk=request.user.business_id)
+                        certificate = Certificate.objects.get(token_no=token_no, business_id=business)
+                    except (CompanyProfile.DoesNotExist, Certificate.DoesNotExist) as e:
+                        logger.error(f"Failed to get business or certificate: {str(e)}")
+                        raise Exception("Business profile or certificate not found")
+
+                    # 3️⃣ Prepare common values for imtrn entries
+                    entry_date = certificate.created_at.date() if certificate.created_at else timezone.now().date()
+                    current_time = timezone.now().time()
+                    xtime = datetime.combine(entry_date, current_time)
+                    current_datetime = timezone.now()
+
+                    # 4️⃣ Create imtrn entries from the created certificate details
+                    imtrn_entries = []
+
+                    for idx, detail in enumerate(created_details, 1):
+                        # Validate detail data before creating imtrn entry
+                        if not detail.xitem:
+                            logger.warning(f"Certificate detail {detail.id} missing xitem, skipping imtrn entry")
+                            continue
+
+                        if not detail.number_of_sacks or detail.number_of_sacks <= 0:
+                            logger.warning(f"Certificate detail {detail.id} has invalid quantity, skipping imtrn entry")
+                            continue
+
+                        # Create Imtrn entry data
+                        imtrn_entry = Imtrn(
+                            business_id=business,
+                            xunit=detail.xunit,
+                            xfloor=detail.xfloor,
+                            xpocket=detail.xpocket,
+                            xitem=detail.xitem,
+                            xwh=getattr(certificate, 'xwh', None),
+                            xdate=current_datetime,
+                            xyear=current_datetime.year,
+                            xper=(current_datetime.month + 6) % 12 or 12,
+                            xqty=detail.number_of_sacks,
+                            xval=detail.total_rent or 0,
+                            xdocnum=token_no,
+                            xdoctype="ADRE",
+                            xaction="Receipt",
+                            xsign=1,
+                            xdocrow=idx,
+                            xtime=xtime,
+                            created_by=request.user,
+                            created_at=current_datetime,
+                            updated_at=current_datetime,
+                        )
+                        imtrn_entries.append(imtrn_entry)
+
+                    # 5️⃣ Bulk create imtrn entries if we have valid entries
+                    created_imtrn_entries = []
+                    if imtrn_entries:
+                        created_imtrn_entries = Imtrn.objects.bulk_create(imtrn_entries)
+                        logger.info(f"Created {len(created_imtrn_entries)} imtrn entries for certificate {token_no}")
+
+                    # 6️⃣ Optionally update certificate status if needed
+                    # Uncomment if you want to mark certificate as "Posted" when details are created
+                    # certificate.xstatus = "Posted"
+                    # certificate.posted_at = current_datetime
+                    # certificate.posted_by = request.user.id
+                    # certificate.save()
+
+                # 7️⃣ Prepare response with both certificate details and imtrn info
                 response_serializer = CertificateDetailsResponseSerializer(
                     created_details,
                     many=True
                 )
 
                 return APIResponse.created(
-                    data=response_serializer.data,
-                    message=f'Successfully created {len(created_details)} certificate details'
+                    data={
+                        'certificate_details': response_serializer.data,
+                        'imtrn_entries_created': len(created_imtrn_entries),
+                        'summary': {
+                            'certificate_token': token_no,
+                            'details_created': len(created_details),
+                            'imtrn_entries_created': len(created_imtrn_entries),
+                            'created_at': current_datetime.isoformat()
+                        }
+                    },
+                    message=f'Successfully created {len(created_details)} certificate details and {len(created_imtrn_entries)} stock entries'
                 )
+
             except Exception as e:
+                logger.error(
+                    f"Failed to create certificate details and imtrn entries for {token_no}: {str(e)}",
+                    exc_info=True,
+                    extra={
+                        'user_id': request.user.id,
+                        'business_id': request.user.business_id,
+                        'token_no': token_no
+                    }
+                )
                 return APIResponse.error(
-                    message=f'Failed to create certificate details{str(e)}',
+                    message=f'Failed to create certificate details and stock entries: {str(e)}',
                     status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
                 )
 
         return APIResponse.validation_error(
-            message =  'Validation failed',
-            errors = serializer.errors
+            message='Validation failed',
+            errors=serializer.errors
         )
-
 
 class CertificateManage(APIView):
     def get_object(self, token_no, user):
