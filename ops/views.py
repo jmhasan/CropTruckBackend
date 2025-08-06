@@ -558,10 +558,10 @@ class BulkCreateCertificateDetailsView(APIView):
 
                     # 6️⃣ Optionally update certificate status if needed
                     # Uncomment if you want to mark certificate as "Posted" when details are created
-                    # certificate.xstatus = "Posted"
-                    # certificate.posted_at = current_datetime
-                    # certificate.posted_by = request.user.id
-                    # certificate.save()
+                    certificate.xstatus = "Posted"
+                    certificate.posted_at = current_datetime
+                    certificate.posted_by = request.user.id
+                    certificate.save()
 
                 # 7️⃣ Prepare response with both certificate details and imtrn info
                 response_serializer = CertificateDetailsResponseSerializer(
