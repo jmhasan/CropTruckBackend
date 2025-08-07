@@ -7,7 +7,6 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
-
 from inventory.serializers import CurrentStockSerializer, ImtorSerializer
 from utils.customlist import CustomListAPIView
 logger = logging.getLogger(__name__)
@@ -15,6 +14,8 @@ from inventory.models import Imtrn, Stock, Imtor
 from masterdata.models import CompanyProfile
 from ops.models import Certificate, CertificateDetails
 from utils.response import APIResponse
+
+
 
 class CertificatePost(APIView):
     """
@@ -178,7 +179,6 @@ class CertificatePost(APIView):
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
 
-
 class CurrentStock(APIView):
     def get(self, request, *args, **kwargs):
         token_no = self.request.query_params.get('token_no')
@@ -211,6 +211,7 @@ class TransferEntry(APIView):
     def post(self, request, format=None):
         """Create a new transfer order with stock entries"""
         serializer = ImtorSerializer(data=request.data)
+        # get_current_stock()
 
         # Get user's business
         try:
@@ -229,6 +230,29 @@ class TransferEntry(APIView):
         if not serializer.is_valid():
             return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
 
+            # Extract validated data
+        validated_data = serializer.validated_data
+        token_no = validated_data.get('token_no')
+        xunit = validated_data.get('xfunit')  # From Unit
+        xfloor = validated_data.get('xffloor')  # From Floor
+        xpocket = validated_data.get('xfpocket')  # From Pocket
+        number_of_sacks = validated_data.get('number_of_sacks')
+        # print(token_no)
+        # print(xunit)
+        # print(xfloor)
+        # print(xpocket)
+        # print(number_of_sacks)
+
+        # ✅ Check current stock
+        stock_obj = Stock.objects.filter(token_no=token_no,xunit=xunit,xfloor=xfloor,xpocket=xpocket).first()
+        current_stock = stock_obj.number_of_sacks if stock_obj and stock_obj.number_of_sacks is not None else 0
+
+        if current_stock < number_of_sacks:
+            return APIResponse.error(
+                message=f"Insufficient stock: Available={current_stock}, Requested={number_of_sacks}",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
         # Use transaction to ensure data consistency
         try:
             with transaction.atomic():
@@ -243,7 +267,9 @@ class TransferEntry(APIView):
                 # Create stock entries
                 self._create_stock_entries(transfer_order, business, request.user)
 
-                return Response(serializer.data, status=status.HTTP_201_CREATED)
+                return APIResponse.created(
+                    data=serializer.data,
+                    message="Transfer Order Create successfully")
 
         except Exception as e:
             return APIResponse.error(
@@ -268,7 +294,7 @@ class TransferEntry(APIView):
             xdate=current_datetime.date(),  # Use date() for date field
             xyear=current_datetime.year,
             xper=self._calculate_period(current_datetime),
-            xqty=-transfer_order.number_of_sacks,  # Negative for outgoing
+            xqty=transfer_order.number_of_sacks,  # Negative for outgoing
             xval=0,  # You might want to calculate value
             xdocnum=transfer_order.ximtor,
             token_no=transfer_order.token_no,
