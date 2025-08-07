@@ -4,7 +4,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.utils import timezone
 
-from inventory.models import Imtrn
+from inventory.models import Imtrn, Stock
 from masterdata.serializers import CustomerProfileResponseSerializer
 from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
@@ -539,6 +539,7 @@ class BulkCreateCertificateDetailsView(APIView):
                             xqty=detail.number_of_sacks,
                             xval=detail.total_rent or 0,
                             xdocnum=token_no,
+                            token_no=token_no,
                             xdoctype="ADRE",
                             xaction="Receipt",
                             xsign=1,

@@ -1,12 +1,17 @@
 import logging
 from datetime import datetime
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
+from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+from inventory.serializers import CurrentStockSerializer, ImtorSerializer
+from utils.customlist import CustomListAPIView
 logger = logging.getLogger(__name__)
-from inventory.models import Imtrn
+from inventory.models import Imtrn, Stock, Imtor
 from masterdata.models import CompanyProfile
 from ops.models import Certificate, CertificateDetails
 from utils.response import APIResponse
@@ -171,3 +176,212 @@ class CertificatePost(APIView):
                 'success': False,
                 'message': 'Failed to post certificate to stock. Please try again or contact support.'
             }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+
+
+
+class CurrentStock(APIView):
+    def get(self, request, *args, **kwargs):
+        token_no = self.request.query_params.get('token_no')
+        xmobile = self.request.query_params.get('xmobile')
+        xpocket = self.request.query_params.get('xpocket')
+        snippets = Stock.objects.filter(Q(token_no=token_no) | Q(xmobile=xmobile) | Q(xpocket=xpocket))
+        serializer = CurrentStockSerializer(snippets, many=True)
+
+        return APIResponse.success(
+            data=serializer.data,
+            message="Stock Status retrieved successfully"
+        )
+
+class TransferEntry(APIView):
+    def get(self, request, format=None):
+        """Get all transfer orders for the user's business"""
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return APIResponse.error(
+                message="User business profile not found",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # Filter by business_id for security
+        snippets = Imtor.objects.filter(business_id=business)
+        serializer = ImtorSerializer(snippets, many=True)
+        return Response(serializer.data)
+
+    def post(self, request, format=None):
+        """Create a new transfer order with stock entries"""
+        serializer = ImtorSerializer(data=request.data)
+
+        # Get user's business
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+        except CompanyProfile.DoesNotExist:
+            return APIResponse.error(
+                message="User business profile not found",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except AttributeError:
+            return APIResponse.error(
+                message="User does not have business_id attribute",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        if not serializer.is_valid():
+            return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+        # Use transaction to ensure data consistency
+        try:
+            with transaction.atomic():
+                # Save the transfer order
+                transfer_order = serializer.save(
+                    business_id=business,
+                    created_by=request.user,
+                    updated_by=request.user,
+                    xtype='TO'
+                )
+
+                # Create stock entries
+                self._create_stock_entries(transfer_order, business, request.user)
+
+                return Response(serializer.data, status=status.HTTP_201_CREATED)
+
+        except Exception as e:
+            return APIResponse.error(
+                message=f"Failed to create transfer order: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+    def _create_stock_entries(self, transfer_order, business, user):
+        """Create stock transaction entries for the transfer"""
+        current_datetime = datetime.now()
+        # Use the full datetime instead of just time string
+        xtime = current_datetime
+        stock_entries = []
+
+        # OUT entry (from source location) - Negative quantity
+        out_entry = Imtrn(
+            business_id=business,
+            xunit=transfer_order.xfunit,
+            xfloor=transfer_order.xffloor,
+            xpocket=transfer_order.xfpocket,
+            # xitem=transfer_order.xitem,  # You'll need to add item field to Imtor or get it another way
+            xdate=current_datetime.date(),  # Use date() for date field
+            xyear=current_datetime.year,
+            xper=self._calculate_period(current_datetime),
+            xqty=-transfer_order.number_of_sacks,  # Negative for outgoing
+            xval=0,  # You might want to calculate value
+            xdocnum=transfer_order.ximtor,
+            token_no=transfer_order.token_no,
+            xdoctype="TO",  # Transfer Order
+            xaction="Transfer Out",
+            xsign=-1,  # Negative sign for outgoing
+            xdocrow=1,
+            xtime=xtime,  # Now uses datetime instead of time string
+            created_by=user,
+            created_at=current_datetime,
+            updated_at=current_datetime,
+        )
+        stock_entries.append(out_entry)
+
+        # IN entry (to destination location) - Positive quantity
+        in_entry = Imtrn(
+            business_id=business,
+            xunit=transfer_order.xtunit,
+            xfloor=transfer_order.xtfloor,
+            xpocket=transfer_order.xtpocket,
+            # xitem=transfer_order.xitem,  # You'll need to add item field to Imtor or get it another way
+            xdate=current_datetime.date(),  # Use date() for date field
+            xyear=current_datetime.year,
+            xper=self._calculate_period(current_datetime),
+            xqty=transfer_order.number_of_sacks,  # Positive for incoming
+            xval=0,  # You might want to calculate value
+            xdocnum=transfer_order.ximtor,
+            token_no=transfer_order.token_no,
+            xdoctype="TO",  # Transfer Order
+            xaction="Transfer In",
+            xsign=1,  # Positive sign for incoming
+            xdocrow=2,
+            xtime=xtime,  # Now uses datetime instead of time string
+            created_by=user,
+            created_at=current_datetime,
+            updated_at=current_datetime,
+        )
+        stock_entries.append(in_entry)
+
+        # Bulk create for better performance
+        Imtrn.objects.bulk_create(stock_entries)
+
+        # Update transfer order status
+        transfer_order.xstatus = 'In Progress'
+        transfer_order.save()
+
+    def _calculate_period(self, date):
+        """Calculate period based on your business logic"""
+        return (date.month + 6) % 12 or 12
+
+
+class TransferEntryDetail(APIView):
+
+    def get(self, request, transfer_id, format=None):
+        """Get specific transfer order details"""
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+            transfer_order = Imtor.objects.get(
+                ximtor=transfer_id,
+                business_id=business
+            )
+        except CompanyProfile.DoesNotExist:
+            return APIResponse.error(
+                message="User business profile not found",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except Imtor.DoesNotExist:
+            return APIResponse.error(
+                message="Transfer order not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        serializer = ImtorSerializer(transfer_order)
+        return Response(serializer.data)
+
+    def patch(self, request, transfer_id, format=None):
+        """Update transfer order status"""
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+            transfer_order = Imtor.objects.get(
+                ximtor=transfer_id,
+                business_id=business
+            )
+        except (CompanyProfile.DoesNotExist, Imtor.DoesNotExist):
+            return APIResponse.error(
+                message="Transfer order not found",
+                status_code=status.HTTP_404_NOT_FOUND
+            )
+
+        # Only allow status updates
+        allowed_fields = ['xstatus']
+        update_data = {k: v for k, v in request.data.items() if k in allowed_fields}
+
+        serializer = ImtorSerializer(
+            transfer_order,
+            data=update_data,
+            partial=True
+        )
+
+        if serializer.is_valid():
+            with transaction.atomic():
+                serializer.save(updated_by=request.user)
+
+                # If completing the transfer, you might want to do additional processing
+                if update_data.get('xstatus') == 'Completed':
+                    self._complete_transfer(transfer_order, business, request.user)
+
+            return Response(serializer.data)
+
+        return Response(serializer.errors, status=status.HTTP_400_BAD_REQUEST)
+
+    def _complete_transfer(self, transfer_order, business, user):
+        """Handle transfer completion logic"""
+        # Add any additional logic needed when completing a transfer
+        # For example, updating inventory counts, sending notifications, etc.
+        pass

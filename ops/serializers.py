@@ -524,3 +524,4 @@ class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
             'created_by_name',
             'created_at'
         ]
+
