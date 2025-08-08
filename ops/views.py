@@ -685,29 +685,56 @@ class DeliveryChallanCreateView(APIView):
                 except (CompanyProfile.DoesNotExist, Certificate.DoesNotExist) as e:
                     raise Exception("Business profile or certificate not found")
 
+                # Get token_no from request data
+                token_no = request.data.get('token_no')
+                xqtychl = request.data.get('xqtychl')
+                print(xqtychl)
+                if not token_no:
+                    return Response({
+                        'error': 'Token number is required'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Get certificate data based on token_no
+                try:
+                    certificate = Certificate.objects.get(token_no=token_no, business_id=business)
+                except Certificate.DoesNotExist:
+                    return Response({
+                        'error': 'Certificate not found for the given token number'
+                    }, status=status.HTTP_404_NOT_FOUND)
+
+                # Resolve additional fields from certificate
+                customer_code = certificate.customer_code
+                xmobile = certificate.xmobile
+
+
                 delivery_items = request.data.get('delivery_items', [])
                 if not delivery_items:
                     return Response({
                         'error': 'At least one delivery item is required'
                     }, status=status.HTTP_400_BAD_REQUEST)
+
+                # Save with additional data from certificate
                 opchallan = serializer.save(
                     created_by=getattr(request, 'user', None),
-                    business_id=business
+                    business_id=business,
+                    xcus=customer_code,
+                    xmobile=xmobile,
+                    xcur='BDT',
+                    # Add any other fields you need to populate from certificate
                 )
 
-                return Response({
-                    'message': 'Delivery challan created successfully',
-                    'data': serializer.data,
-                    'delivery_number': opchallan.xchlnum
-                }, status=status.HTTP_201_CREATED)
+                return APIResponse.created(
+                    message='Delivery challan created successfully',
+                    data=serializer.data,
+                )
 
-            return Response({
-                'error': 'Validation failed',
-                'details': serializer.errors
-            }, status=status.HTTP_400_BAD_REQUEST)
+            return APIResponse.error(
+                message='Validation failed',
+                errors=serializer.errors
+            )
 
         except Exception as e:
-            return Response({
-                'error': 'Internal server error',
-                'message': str(e)
-            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
+            return APIResponse.error(
+                message=f"Failed to create delivery challan: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )

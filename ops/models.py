@@ -189,7 +189,7 @@ class Opchallan(models.Model):
 
             if last_entry:
                 try:
-                    last_code = int(last_entry.ximtor.split('-')[-1])
+                    last_code = int(last_entry.xchlnum.split('-')[-1])
                     next_number = f"{last_code + 1:06d}"
                 except (ValueError, IndexError):
                     # Fallback if parsing fails

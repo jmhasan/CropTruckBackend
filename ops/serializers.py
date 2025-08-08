@@ -5,6 +5,8 @@ from rest_framework import serializers
 from django.db import models, transaction
 from django.utils import timezone
 from .models import CertificateDetails, Certificate
+from decimal import Decimal
+
 
 
 class TokenSerializer(serializers.ModelSerializer):
@@ -534,7 +536,7 @@ class OpchallandSerializer(serializers.ModelSerializer):
         fields = [
             'xitem', 'xunit', 'xfloor', 'xpocket', 'xqtychl',
             'xrate', 'xemptysack', 'xemptsrate', 'xadvance', 'xchgdel',
-            'xchgtot', 'xinterest', 'xinterestamt', 'xdtwotax', 'xwh',
+            'xchgtot', 'xinterest', 'xinterestamt',  'xwh',
             'xunitsel', 'xcfsel', 'xcur', 'xdisc', 'xlineamt'
         ]
 
@@ -548,12 +550,11 @@ class OpchallanSerializer(serializers.ModelSerializer):
     class Meta:
         model = Opchallan
         fields = [
-            'token_no', 'xmobile', 'certificate_no', 'xcus',
-            'xwh', 'xcur', 'xdelsite', 'xvehicle', 'xdriver', 'xdriver_mobile',
-            'xdtwotax', 'xadvance', 'xempttot', 'xchgtot', 'xdestin', 'xtotamt',
-            'xstatus', 'delivery_items'
+            'token_no', 'certificate_no','xwh', 'xdelsite', 'xvehicle', 'xdriver', 'xdriver_mobile',
+            'xdtwotax', 'xadvance', 'xempttot', 'xchgtot', 'xdestin', 'xtotamt','delivery_items'
         ]
         read_only_fields = ['xchlnum']  # Auto-generated
+
 
     def validate(self, data):
         """Validate that certificate exists"""
@@ -580,14 +581,26 @@ class OpchallanSerializer(serializers.ModelSerializer):
             # Create parent Opchallan record
             opchallan = Opchallan.objects.create(**validated_data)
 
+
             # Create child Opchalland records
             for index, item_data in enumerate(delivery_items_data, start=1):
+
+                xqtychl = Decimal(str(item_data.get('xqtychl', 0.0)))
+                xrete = Decimal(str(item_data.get('xrate', 0.0)))
+                print(xqtychl)
+                print(xrete)
+                xdtwotax = xqtychl*xrete
+                print(xdtwotax)
+
+
+
                 Opchalland.objects.create(
+                    xrow=index,  # auto-assign 1, 2, 3, ...
                     business_id=validated_data['business_id'],
                     xchlnum=opchallan.xchlnum,
                     token_no=opchallan.token_no,
+                    xdtwotax=xdtwotax,
                     created_by=opchallan.created_by,
-                    xrow=index,  # auto-assign 1, 2, 3, ...
                     **item_data
                 )
 
