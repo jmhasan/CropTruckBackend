@@ -24,6 +24,8 @@ urlpatterns = [
     path('certificates/ready-list/', views.CertificateReadyList.as_view(), name='certificate-ready-list'),
     path('certificates/manage/<str:token_no>/', views.CertificateManage.as_view(), name='certificate-manage'),
     path('certificates-details/manage/<str:token_no>/', views.CertificateDetailManage.as_view(), name='certificate-details-manage'),
+    # Delivery Related url
+    path('delivery-challan/create/', views.DeliveryChallanCreateView.as_view(), name='create_delivery_challan'),
 
 ]
 

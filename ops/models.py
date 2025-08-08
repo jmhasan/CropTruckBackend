@@ -2,7 +2,7 @@ import datetime
 from math import trunc
 
 from django.core.validators import RegexValidator
-from django.db import models
+from django.db import models, transaction
 
 from masterdata.models import AuditModel, CompanyProfile, CustomerProfile
 
@@ -29,7 +29,6 @@ def booking_no():
 
     booking_number = f"{prefix}{next_serial:05d}"
     return booking_number
-
 
 def token_no():
     # GET Current Date
@@ -84,6 +83,7 @@ class Booking(AuditModel):
     def __str__(self):
         return f"{self.booking_no}"
 
+
 class TokenNumber(AuditModel):
     pk = models.CompositePrimaryKey('business_id', 'token_no')
     business_id = models.ForeignKey(CompanyProfile, on_delete=models.DO_NOTHING)
@@ -95,6 +95,7 @@ class TokenNumber(AuditModel):
         db_table = 'token_number'
         verbose_name = 'Token Number'
         verbose_name_plural = 'Token Numbers'
+
 
 class Certificate(models.Model):
     pk = models.CompositePrimaryKey('business_id', 'token_no')
@@ -169,3 +170,102 @@ class CertificateDetails(models.Model):
     class Meta:
         managed = False
         db_table = 'certificate_details'
+
+
+class Opchallan(models.Model):
+    @staticmethod
+    def generate_delivery_number():
+        """Generate unique transfer order number with format TO-YY-XXXXXX"""
+        with transaction.atomic():
+            year_str = datetime.date.today().strftime('%y')
+            prefix = f"CL-{year_str}-"
+
+            # Use select_for_update to prevent race conditions
+            last_entry = (Opchallan.objects
+                          .filter(xchlnum__startswith=prefix)
+                          .select_for_update()
+                          .order_by('-xchlnum')
+                          .first())
+
+            if last_entry:
+                try:
+                    last_code = int(last_entry.ximtor.split('-')[-1])
+                    next_number = f"{last_code + 1:06d}"
+                except (ValueError, IndexError):
+                    # Fallback if parsing fails
+                    next_number = "000001"
+            else:
+                next_number = "000001"
+
+            return prefix + next_number
+    pk = models.CompositePrimaryKey('business_id_id', 'xchlnum', 'token_no')
+    business_id = models.ForeignKey('masterdata.CompanyProfile', models.DO_NOTHING)
+    xchlnum = models.CharField(max_length=100, default=generate_delivery_number)
+    token_no = models.CharField(max_length=100)
+    xmobile = models.CharField(max_length=20, blank=True, null=True)
+    certificate_no = models.CharField(max_length=20, blank=True, null=True)
+    xcus = models.CharField(max_length=100, blank=True, null=True)
+    xwh = models.CharField(max_length=100, blank=True, null=True)
+    xcur = models.CharField(max_length=100, blank=True, null=True)
+    xdelsite = models.CharField(max_length=250, blank=True, null=True)
+    xvehicle = models.CharField(max_length=100, blank=True, null=True)
+    xdriver = models.CharField(max_length=150, blank=True, null=True)
+    xdriver_mobile = models.CharField(max_length=150, blank=True, null=True)
+    xdtwotax = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xadvance = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xempttot = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xchgtot = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xdestin = models.CharField(max_length=100, blank=True, null=True)
+    xtotamt = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xstatus = models.CharField(default='Open',max_length=100, blank=True, null=True)
+    confirm_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, db_column='confirm_by', blank=True, null=True)
+    confirm_at = models.DateTimeField(blank=True, null=True)
+    invoice_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, db_column='invoice_by', related_name='opchallan_invoice_by_set', blank=True, null=True)
+    invoice_at = models.DateTimeField(blank=True, null=True)
+    created_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, related_name='opchallan_created_by_set', blank=True, null=True)
+    updated_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, related_name='opchallan_updated_by_set', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True,blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True,blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'opchallan'
+
+    def __str__(self):
+        return str(self.xchlnum)
+
+
+class Opchalland(models.Model):
+    pk = models.CompositePrimaryKey('business_id_id', 'xchlnum', 'token_no', 'xrow')
+    business_id = models.ForeignKey('masterdata.CompanyProfile', models.DO_NOTHING)
+    xchlnum = models.CharField(max_length=100)
+    token_no = models.CharField(max_length=100)
+    xrow = models.IntegerField()
+    xitem = models.CharField(max_length=100)
+    xunit = models.CharField(max_length=50, blank=True, null=True)
+    xfloor = models.CharField(max_length=50, blank=True, null=True)
+    xpocket = models.CharField(max_length=50, blank=True, null=True)
+    xqtychl = models.DecimalField(max_digits=20, decimal_places=3, blank=True, null=True)
+    xrate = models.DecimalField(max_digits=20, decimal_places=4, blank=True, null=True)
+    xemptysack = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xemptsrate = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xadvance = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xchgdel = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xchgtot = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xinterest = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xinterestamt = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xdtwotax = models.DecimalField(max_digits=30, decimal_places=6, blank=True, null=True)
+    xwh = models.CharField(max_length=100, blank=True, null=True)
+    xunitsel = models.CharField(max_length=100, blank=True, null=True)
+    xcfsel = models.DecimalField(max_digits=20, decimal_places=6, blank=True, null=True)
+    xcur = models.CharField(max_length=100, blank=True, null=True)
+    xdisc = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
+    xlineamt = models.DecimalField(max_digits=30, decimal_places=6, blank=True, null=True)
+    created_by = models.ForeignKey('user.Customuser', models.DO_NOTHING, blank=True, null=True)
+    updated_by = models.ForeignKey('user.Customuser', models.DO_NOTHING, related_name='opchalland_updated_by_set', blank=True, null=True)
+    created_at = models.DateTimeField(auto_now_add=True, blank=True, null=True)
+    updated_at = models.DateTimeField(auto_now=True, blank=True, null=True)
+
+    class Meta:
+        managed = False
+        db_table = 'opchalland'

@@ -1,6 +1,6 @@
 from django.core.validators import RegexValidator
 from masterdata.models import CustomerProfile, ItemMaster, CompanyProfile
-from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
+from ops.models import TokenNumber, Booking, Certificate, CertificateDetails, Opchalland, Opchallan
 from rest_framework import serializers
 from django.db import models, transaction
 from django.utils import timezone
@@ -217,6 +217,7 @@ class CertificateSerializer(serializers.ModelSerializer):
         exclude = ['pk']
         read_only_fields = ('created_by', 'updated_by', 'created_at', 'updated_at')
 
+
 class CertificateReadyListSerializer(serializers.ModelSerializer):
     class Meta:
         model = Certificate
@@ -309,8 +310,6 @@ class CertificateCreateSerializer(serializers.Serializer):
 
 
 class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
-    """Serializer for bulk creating certificate details"""
-
     # Individual detail serializer without business_id
     class CertificateDetailItemSerializer(serializers.ModelSerializer):
         class Meta:
@@ -502,6 +501,7 @@ class CertificateDetailsBulkCreateSerializer(serializers.Serializer):
 
         return created_details
 
+
 class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
     business_name = serializers.CharField(source='business_id.company_name', read_only=True)
     created_by_name = serializers.CharField(source='created_by.get_full_name', read_only=True)
@@ -524,4 +524,88 @@ class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
             'created_by_name',
             'created_at'
         ]
+
+
+class OpchallandSerializer(serializers.ModelSerializer):
+    """Serializer for Opchalland (child) model"""
+
+    class Meta:
+        model = Opchalland
+        fields = [
+            'xitem', 'xunit', 'xfloor', 'xpocket', 'xqtychl',
+            'xrate', 'xemptysack', 'xemptsrate', 'xadvance', 'xchgdel',
+            'xchgtot', 'xinterest', 'xinterestamt', 'xdtwotax', 'xwh',
+            'xunitsel', 'xcfsel', 'xcur', 'xdisc', 'xlineamt'
+        ]
+
+
+class OpchallanSerializer(serializers.ModelSerializer):
+    """Serializer for Opchallan (parent) model"""
+
+    # Nested serializer for child records
+    delivery_items = OpchallandSerializer(many=True, write_only=True)
+
+    class Meta:
+        model = Opchallan
+        fields = [
+            'token_no', 'xmobile', 'certificate_no', 'xcus',
+            'xwh', 'xcur', 'xdelsite', 'xvehicle', 'xdriver', 'xdriver_mobile',
+            'xdtwotax', 'xadvance', 'xempttot', 'xchgtot', 'xdestin', 'xtotamt',
+            'xstatus', 'delivery_items'
+        ]
+        read_only_fields = ['xchlnum']  # Auto-generated
+
+    def validate(self, data):
+        """Validate that certificate exists"""
+        business_id = data.get('business_id')
+        token_no = data.get('token_no')
+        if business_id and token_no:
+            # Check if certificate exists
+            certificate_exists = Certificate.objects.filter(
+                business_id=business_id,
+                token_no=token_no
+            ).exists()
+
+            if not certificate_exists:
+                raise serializers.ValidationError({
+                    'token_no': f'Certificate with business_id={business_id.id if hasattr(business_id, "id") else business_id} and token_no={token_no} does not exist'
+                })
+
+        return data
+
+    def create(self, validated_data):
+        """Create Opchallan with related Opchalland records"""
+        delivery_items_data = validated_data.pop('delivery_items', [])
+        with transaction.atomic():
+            # Create parent Opchallan record
+            opchallan = Opchallan.objects.create(**validated_data)
+
+            # Create child Opchalland records
+            for index, item_data in enumerate(delivery_items_data, start=1):
+                Opchalland.objects.create(
+                    business_id=validated_data['business_id'],
+                    xchlnum=opchallan.xchlnum,
+                    token_no=opchallan.token_no,
+                    created_by=opchallan.created_by,
+                    xrow=index,  # auto-assign 1, 2, 3, ...
+                    **item_data
+                )
+
+            return opchallan
+
+
+    def to_representation(self, instance):
+        """Include delivery items in response"""
+        data = super().to_representation(instance)
+
+        # Add delivery items to response
+        delivery_items = Opchalland.objects.filter(
+            business_id=instance.business_id,
+            xchlnum=instance.xchlnum,
+            token_no=instance.token_no
+        )
+        data['delivery_items'] = OpchallandSerializer(delivery_items, many=True).data
+        data['xchlnum'] = instance.xchlnum  # Include auto-generated number
+
+        return data
 

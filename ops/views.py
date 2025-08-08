@@ -3,13 +3,12 @@ from django.core.validators import RegexValidator
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework.decorators import api_view, permission_classes
 from rest_framework.utils import timezone
-
 from inventory.models import Imtrn, Stock
 from masterdata.serializers import CustomerProfileResponseSerializer
 from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
 from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
     CertificateSerializer, CertificateCreateSerializer, CertificateDetailsBulkCreateSerializer, \
-    CertificateDetailsResponseSerializer, CertificateReadyListSerializer
+    CertificateDetailsResponseSerializer, CertificateReadyListSerializer, OpchallanSerializer
 from masterdata.models import CompanyProfile, CustomerProfile  # Make sure import is correct
 from ops.services import CertificateService
 from utils.customlist import CustomListAPIView
@@ -17,7 +16,6 @@ from utils.response import APIResponse
 from rest_framework.views import APIView
 from rest_framework.response import Response
 from rest_framework import status, generics
-from rest_framework.permissions import IsAuthenticated
 from django.db import transaction
 from django.utils import timezone
 from datetime import datetime
@@ -86,6 +84,7 @@ class CountedToken(CustomListAPIView):
 
     def get_success_message(self):
         return "Counted tokens retrieved successfully"
+
 
 @api_view(['GET', 'PUT', 'DELETE'])
 def sack_number_input(request, token_no):
@@ -272,7 +271,6 @@ class BookingList(CustomListAPIView):
 
     def get_success_message(self):
         return "Pending tokens retrieved successfully"
-
 
 
 class CustomerProfileDetail(APIView):
@@ -604,6 +602,7 @@ class BulkCreateCertificateDetailsView(APIView):
             errors=serializer.errors
         )
 
+
 class CertificateManage(APIView):
     def get_object(self, token_no, user):
         # 1️⃣ Validate user's business
@@ -672,3 +671,43 @@ class CertificateDetailManage(generics.ListAPIView):
     def get_queryset(self):
         token_no = self.kwargs.get('token_no')
         return CertificateDetails.objects.filter(token_no=token_no)
+
+
+class DeliveryChallanCreateView(APIView):
+    def post(self, request):
+        """Create new delivery challan"""
+        try:
+            serializer = OpchallanSerializer(data=request.data)
+
+            if serializer.is_valid():
+                try:
+                    business = CompanyProfile.objects.get(pk=request.user.business_id)
+                except (CompanyProfile.DoesNotExist, Certificate.DoesNotExist) as e:
+                    raise Exception("Business profile or certificate not found")
+
+                delivery_items = request.data.get('delivery_items', [])
+                if not delivery_items:
+                    return Response({
+                        'error': 'At least one delivery item is required'
+                    }, status=status.HTTP_400_BAD_REQUEST)
+                opchallan = serializer.save(
+                    created_by=getattr(request, 'user', None),
+                    business_id=business
+                )
+
+                return Response({
+                    'message': 'Delivery challan created successfully',
+                    'data': serializer.data,
+                    'delivery_number': opchallan.xchlnum
+                }, status=status.HTTP_201_CREATED)
+
+            return Response({
+                'error': 'Validation failed',
+                'details': serializer.errors
+            }, status=status.HTTP_400_BAD_REQUEST)
+
+        except Exception as e:
+            return Response({
+                'error': 'Internal server error',
+                'message': str(e)
+            }, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
