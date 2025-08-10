@@ -530,28 +530,25 @@ class CertificateDetailsResponseSerializer(serializers.ModelSerializer):
 
 class OpchallandSerializer(serializers.ModelSerializer):
     """Serializer for Opchalland (child) model"""
+    quantity = serializers.DecimalField(max_digits=20, decimal_places=6, source='xqtychl')
 
     class Meta:
         model = Opchalland
         fields = [
-            'xitem', 'xunit', 'xfloor', 'xpocket', 'xqtychl',
-            'xrate', 'xemptysack', 'xemptsrate', 'xadvance', 'xchgdel',
-            'xchgtot', 'xinterest', 'xinterestamt',  'xwh',
-            'xunitsel', 'xcfsel', 'xcur', 'xdisc', 'xlineamt'
+            'quantity','xunit', 'xfloor', 'xpocket', 'xqtychl'
         ]
+        extra_kwargs = {'xqtychl': {'read_only': True}}
 
 
 class OpchallanSerializer(serializers.ModelSerializer):
-    """Serializer for Opchallan (parent) model"""
-
     # Nested serializer for child records
     delivery_items = OpchallandSerializer(many=True, write_only=True)
 
     class Meta:
         model = Opchallan
         fields = [
-            'token_no', 'certificate_no','xwh', 'xdelsite', 'xvehicle', 'xdriver', 'xdriver_mobile',
-            'xdtwotax', 'xadvance', 'xempttot', 'xchgtot', 'xdestin', 'xtotamt','delivery_items'
+            'token_no', 'xchgtot', 'xpayloan','xemptysack', 'xemptysackchgtot',
+            'xinterestamt','xfanchgtot', 'delivery_items'
         ]
         read_only_fields = ['xchlnum']  # Auto-generated
 
@@ -601,6 +598,7 @@ class OpchallanSerializer(serializers.ModelSerializer):
                     token_no=opchallan.token_no,
                     xdtwotax=xdtwotax,
                     created_by=opchallan.created_by,
+                    xitem="01-01-001-0001",
                     **item_data
                 )
 

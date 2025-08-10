@@ -116,7 +116,6 @@ class Certificate(models.Model):
     union_name = models.CharField(max_length=100, blank=True, null=True)
     village = models.CharField(max_length=150, blank=True, null=True)
     post_office = models.CharField(max_length=100, blank=True, null=True)
-
     number_of_sacks = models.IntegerField()
     potato_type = models.CharField(max_length=100, blank=True, null=True)
     rent_per_sack = models.DecimalField(max_digits=10, decimal_places=2, blank=True, null=True)
@@ -218,6 +217,13 @@ class Opchallan(models.Model):
     xdestin = models.CharField(max_length=100, blank=True, null=True)
     xtotamt = models.DecimalField(max_digits=20, decimal_places=2, blank=True, null=True)
     xstatus = models.CharField(default='Open',max_length=100, blank=True, null=True)
+
+    xpayloan = models.DecimalField(max_digits=20, decimal_places=2, default=0, blank=True, null=True)
+    xemptysack = models.IntegerField(default=0, blank=True, null=True)
+    xemptysackchgtot = models.DecimalField(max_digits=20, decimal_places=2, default=0, blank=True, null=True)
+    xinterestamt = models.DecimalField(max_digits=20, decimal_places=2, default=0, blank=True, null=True)
+    xfanchgtot = models.DecimalField(max_digits=20, decimal_places=2, default=0, blank=True, null=True)
+
     confirm_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, db_column='confirm_by', blank=True, null=True)
     confirm_at = models.DateTimeField(blank=True, null=True)
     invoice_by = models.ForeignKey('user.CustomUser', models.DO_NOTHING, db_column='invoice_by', related_name='opchallan_invoice_by_set', blank=True, null=True)
