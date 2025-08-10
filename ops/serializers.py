@@ -540,70 +540,178 @@ class OpchallandSerializer(serializers.ModelSerializer):
         extra_kwargs = {'xqtychl': {'read_only': True}}
 
 
+# class OpchallanSerializer(serializers.ModelSerializer):
+#     # Nested serializer for child records
+#     delivery_items = OpchallandSerializer(many=True, write_only=True)
+#
+#     class Meta:
+#         model = Opchallan
+#         fields = [
+#             'token_no', 'xchgtot', 'xpayloan','xemptysack', 'xemptysackchgtot',
+#             'xinterestamt','xfanchgtot', 'delivery_items'
+#         ]
+#         read_only_fields = ['xchlnum']  # Auto-generated
+#
+#
+#     def validate(self, data):
+#         """Validate that certificate exists"""
+#         business_id = data.get('business_id')
+#         token_no = data.get('token_no')
+#         if business_id and token_no:
+#             # Check if certificate exists
+#             certificate_exists = Certificate.objects.filter(
+#                 business_id=business_id,
+#                 token_no=token_no
+#             ).exists()
+#
+#             if not certificate_exists:
+#                 raise serializers.ValidationError({
+#                     'token_no': f'Certificate with business_id={business_id.id if hasattr(business_id, "id") else business_id} and token_no={token_no} does not exist'
+#                 })
+#
+#         return data
+#
+#     def create(self, validated_data):
+#         """Create Opchallan with related Opchalland records"""
+#         delivery_items_data = validated_data.pop('delivery_items', [])
+#         with transaction.atomic():
+#             # Create parent Opchallan record
+#             opchallan = Opchallan.objects.create(**validated_data)
+#
+#
+#             # Create child Opchalland records
+#             for index, item_data in enumerate(delivery_items_data, start=1):
+#                 xqtychl = Decimal(str(item_data.get('xqtychl', 0.0)))
+#                 xrate = Decimal(str(item_data.get('xrate', 0.0)))
+#
+#                 xdtwotax = xqtychl*xrate
+#
+#                 Opchalland.objects.create(
+#                     xrow=index,  # auto-assign 1, 2, 3, ...
+#                     business_id=validated_data['business_id'],
+#                     xchlnum=opchallan.xchlnum,
+#                     token_no=opchallan.token_no,
+#                     xdtwotax=xdtwotax,
+#                     created_by=opchallan.created_by,
+#                     xitem="01-01-001-0001",
+#                     **item_data
+#                 )
+#
+#             return opchallan
+#
+#
+#     def to_representation(self, instance):
+#         """Include delivery items in response"""
+#         data = super().to_representation(instance)
+#
+#         # Add delivery items to response
+#         delivery_items = Opchalland.objects.filter(
+#             business_id=instance.business_id,
+#             xchlnum=instance.xchlnum,
+#             token_no=instance.token_no
+#         )
+#         data['delivery_items'] = OpchallandSerializer(delivery_items, many=True).data
+#         data['xchlnum'] = instance.xchlnum  # Include auto-generated number
+#
+#         return data
+
+
 class OpchallanSerializer(serializers.ModelSerializer):
-    # Nested serializer for child records
     delivery_items = OpchallandSerializer(many=True, write_only=True)
+    xrate = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True)
 
     class Meta:
         model = Opchallan
         fields = [
-            'token_no', 'xchgtot', 'xpayloan','xemptysack', 'xemptysackchgtot',
-            'xinterestamt','xfanchgtot', 'delivery_items'
+            'token_no', 'xchgtot', 'xpayloan', 'xemptysack', 'xemptysackchgtot',
+            'xinterestamt', 'xfanchgtot', 'delivery_items',
+            'business_id', 'created_by'  # Explicitly include these fields
         ]
-        read_only_fields = ['xchlnum']  # Auto-generated
-
+        read_only_fields = ['xchlnum', 'created_by', 'business_id']
 
     def validate(self, data):
-        """Validate that certificate exists"""
-        business_id = data.get('business_id')
-        token_no = data.get('token_no')
-        if business_id and token_no:
-            # Check if certificate exists
-            certificate_exists = Certificate.objects.filter(
-                business_id=business_id,
-                token_no=token_no
-            ).exists()
+        request = self.context.get('request')
+        if not request or not request.user:
+            raise serializers.ValidationError("Request context with user is required")
 
-            if not certificate_exists:
-                raise serializers.ValidationError({
-                    'token_no': f'Certificate with business_id={business_id.id if hasattr(business_id, "id") else business_id} and token_no={token_no} does not exist'
-                })
+        # Get business profile
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+            self.context['business'] = business
+        except CompanyProfile.DoesNotExist:
+            raise serializers.ValidationError("Business profile not found")
+
+        # Get certificate and rate
+        token_no = data.get('token_no')
+        if not token_no:
+            raise serializers.ValidationError("Token number is required")
+
+        try:
+            certificate = Certificate.objects.get(
+                token_no=token_no,
+                business_id=business
+            )
+            self.context['certificate'] = certificate
+            # data['xrate'] = certificate.rent_per_sack
+        except Certificate.DoesNotExist:
+            raise serializers.ValidationError({
+                'token_no': 'Certificate not found for the given token number'
+            })
 
         return data
 
     def create(self, validated_data):
-        """Create Opchallan with related Opchalland records"""
         delivery_items_data = validated_data.pop('delivery_items', [])
+        request = self.context.get('request')
+        business = self.context.get('business')
+        certificate = self.context.get('certificate')
+        xrate = certificate.rent_per_sack
+
         with transaction.atomic():
-            # Create parent Opchallan record
-            opchallan = Opchallan.objects.create(**validated_data)
+            # Create parent record with all required fields
+            opchallan = Opchallan.objects.create(
+                **validated_data,
+                created_by=request.user if request else None,
+                business_id=business,
+                xcus=certificate.customer_code,
+                xmobile=certificate.xmobile,
+                xcur='BDT'
+            )
 
-
-            # Create child Opchalland records
+            # Calculate item amounts and total
+            item_total_amount = Decimal('0.0')
             for index, item_data in enumerate(delivery_items_data, start=1):
-
-                xqtychl = Decimal(str(item_data.get('xqtychl', 0.0)))
-                xrete = Decimal(str(item_data.get('xrate', 0.0)))
-                print(xqtychl)
-                print(xrete)
-                xdtwotax = xqtychl*xrete
-                print(xdtwotax)
-
-
+                xqtychl = Decimal(str(item_data.get('xqtychl', '0.0')))
+                item_amount = xqtychl * xrate
+                item_total_amount += item_amount
 
                 Opchalland.objects.create(
-                    xrow=index,  # auto-assign 1, 2, 3, ...
-                    business_id=validated_data['business_id'],
+                    xrow=index,
+                    business_id=business,
                     xchlnum=opchallan.xchlnum,
                     token_no=opchallan.token_no,
-                    xdtwotax=xdtwotax,
+                    xdtwotax=item_amount,
+                    xlineamt=item_amount,
+                    xrate=xrate,
                     created_by=opchallan.created_by,
                     xitem="01-01-001-0001",
                     **item_data
                 )
 
-            return opchallan
+            # Get all additional amounts
+            xchgtot = Decimal(str(request.data.get('xchgtot', '0.0')))
+            xemptysackchgtot = Decimal(str(request.data.get('xemptysackchgtot', '0.0')))
+            xinterestamt = Decimal(str(request.data.get('xinterestamt', '0.0')))
+            xpayloan = Decimal(str(request.data.get('xpayloan', '0.0')))
 
+            # Calculate final total (items + charges + interest) - payment
+            total_amount = (item_total_amount + xchgtot + xemptysackchgtot + xinterestamt) - xpayloan
+
+            # Update amounts in the challan
+            opchallan.xtotamt = total_amount
+            opchallan.save()
+
+            return opchallan
 
     def to_representation(self, instance):
         """Include delivery items in response"""
@@ -619,4 +727,3 @@ class OpchallanSerializer(serializers.ModelSerializer):
         data['xchlnum'] = instance.xchlnum  # Include auto-generated number
 
         return data
-
