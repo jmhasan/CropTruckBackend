@@ -618,7 +618,6 @@ class OpchallandSerializer(serializers.ModelSerializer):
 
 class OpchallanSerializer(serializers.ModelSerializer):
     delivery_items = OpchallandSerializer(many=True, write_only=True)
-    xrate = serializers.DecimalField(max_digits=20, decimal_places=6, read_only=True)
 
     class Meta:
         model = Opchallan
@@ -652,7 +651,6 @@ class OpchallanSerializer(serializers.ModelSerializer):
                 business_id=business
             )
             self.context['certificate'] = certificate
-            # data['xrate'] = certificate.rent_per_sack
         except Certificate.DoesNotExist:
             raise serializers.ValidationError({
                 'token_no': 'Certificate not found for the given token number'
