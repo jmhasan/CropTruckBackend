@@ -763,14 +763,16 @@ class OpchallanSerializer(serializers.ModelSerializer):
             # Get all additional amounts
             xchgtot = Decimal(str(request.data.get('xchgtot', '0.0')))
             xemptysackchgtot = Decimal(str(request.data.get('xemptysackchgtot', '0.0')))
+            xfanchgtot = Decimal(str(request.data.get('xfanchgtot', '0.0')))
             xinterestamt = Decimal(str(request.data.get('xinterestamt', '0.0')))
             xpayloan = Decimal(str(request.data.get('xpayloan', '0.0')))
 
             # Calculate final total (items + charges + interest) - payment
-            total_amount = (item_total_amount + xchgtot + xemptysackchgtot + xinterestamt) - xpayloan
+            total_amount = (item_total_amount + xchgtot + xemptysackchgtot + xfanchgtot + xinterestamt) - xpayloan
 
             # Update amounts in the challan
             opchallan.xtotamt = total_amount
+            opchallan.xstatus = "Issued"
             opchallan.save()
 
             return opchallan
