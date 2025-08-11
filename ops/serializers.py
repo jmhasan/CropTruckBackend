@@ -1,4 +1,8 @@
+from datetime import datetime
+
 from django.core.validators import RegexValidator
+
+from inventory.models import Stock, Imtrn
 from masterdata.models import CustomerProfile, ItemMaster, CompanyProfile
 from ops.models import TokenNumber, Booking, Certificate, CertificateDetails, Opchalland, Opchallan
 from rest_framework import serializers
@@ -628,6 +632,39 @@ class OpchallanSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = ['xchlnum', 'created_by', 'business_id']
 
+    def _create_stock_out_entries(self, delivery_item, challan, business, user):
+        """Create stock transaction entries for delivery"""
+        current_datetime = datetime.now()
+
+        # Stock OUT entry (from source location) - Negative quantity
+        out_entry = Imtrn(
+            business_id=business,
+            xunit=delivery_item.xunit,
+            xfloor=delivery_item.xfloor,
+            xpocket=delivery_item.xpocket,
+            xitem="01-01-001-0001",  # Using the default item code from your challan
+            xdate=current_datetime.date(),
+            xyear=current_datetime.year,
+            xper=self._calculate_period(current_datetime),
+            xqty=delivery_item.xqtychl,  # Negative for outgoing
+            xval=0,  # You might want to calculate value based on rate
+            xdocnum=challan.xchlnum,
+            token_no=challan.token_no,
+            xdoctype="CHL",  # Challan
+            xaction="Delivery Out",
+            xsign=-1,  # Negative sign for outgoing
+            xdocrow=delivery_item.xrow,
+            xtime=current_datetime,
+            created_by=user,
+            created_at=current_datetime,
+            updated_at=current_datetime,
+        )
+        out_entry.save()
+
+    def _calculate_period(self, date):
+        """Calculate period based on your business logic"""
+        return (date.month + 6) % 12 or 12
+
     def validate(self, data):
         request = self.context.get('request')
         if not request or not request.user:
@@ -656,6 +693,30 @@ class OpchallanSerializer(serializers.ModelSerializer):
                 'token_no': 'Certificate not found for the given token number'
             })
 
+        # Validate stock for each delivery item
+        delivery_items_data = data.get('delivery_items', [])
+        for item_data in delivery_items_data:
+            xunit = item_data.get('xunit')
+            xfloor = item_data.get('xfloor')
+            xpocket = item_data.get('xpocket')
+            xqtychl = Decimal(str(item_data.get('xqtychl', '0.0')))
+
+            if xunit and xfloor and xpocket:
+                stock_obj = Stock.objects.filter(
+                    token_no=token_no,
+                    xunit=xunit,
+                    xfloor=xfloor,
+                    xpocket=xpocket
+                ).first()
+
+                current_stock = stock_obj.number_of_sacks if stock_obj and stock_obj.number_of_sacks is not None else 0
+
+                if current_stock < xqtychl:
+                    raise serializers.ValidationError({
+                        'delivery_items': f'Insufficient stock for unit {xunit}, floor {xfloor}, pocket {xpocket}. '
+                                          f'Available: {current_stock}, Requested: {xqtychl}'
+                    })
+
         return data
 
     def create(self, validated_data):
@@ -683,7 +744,7 @@ class OpchallanSerializer(serializers.ModelSerializer):
                 item_amount = xqtychl * xrate
                 item_total_amount += item_amount
 
-                Opchalland.objects.create(
+                delivery_item = Opchalland.objects.create(
                     xrow=index,
                     business_id=business,
                     xchlnum=opchallan.xchlnum,
@@ -695,6 +756,9 @@ class OpchallanSerializer(serializers.ModelSerializer):
                     xitem="01-01-001-0001",
                     **item_data
                 )
+
+                # Create stock out entry
+                self._create_stock_out_entries(delivery_item, opchallan, business, request.user)
 
             # Get all additional amounts
             xchgtot = Decimal(str(request.data.get('xchgtot', '0.0')))
