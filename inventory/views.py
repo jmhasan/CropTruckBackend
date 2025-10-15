@@ -211,7 +211,6 @@ class TransferEntry(APIView):
     def post(self, request, format=None):
         """Create a new transfer order with stock entries"""
         serializer = ImtorSerializer(data=request.data)
-        # get_current_stock()
 
         # Get user's business
         try:

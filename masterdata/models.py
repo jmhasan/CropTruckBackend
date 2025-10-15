@@ -240,3 +240,33 @@ class ItemMaster(AuditModel):
     def __str__(self):
         return f"{self.xitem}, {self.xname}"
 
+RENT_PER_SACK = 'RENT_PER_SACK'
+TRANSPORT_CHARGE = 'TRANSPORT_CHARGE'
+FANNING_CHARGE = 'FANNING_CHARGE'
+LOADING_CHARGE = 'LOADING_CHARGE'
+UNLOADING_CHARGE = 'UNLOADING_CHARGE'
+
+RATE_TYPES = [
+    (RENT_PER_SACK, 'Store Rent'),
+    (TRANSPORT_CHARGE, 'Transport Charge'),
+    (FANNING_CHARGE, 'Fanning Charge'),
+    (LOADING_CHARGE, 'Loading Charge'),
+    (UNLOADING_CHARGE, 'Unloading Charge'),
+]
+
+
+
+class RateSetup(AuditModel):
+    pk = models.CompositePrimaryKey('business_id','xyear','xtype')
+    business_id = models.ForeignKey(CompanyProfile, on_delete=models.DO_NOTHING)
+    xyear = models.IntegerField()
+    xtype = models.CharField(max_length=50, choices=RATE_TYPES)
+    xrate = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+
+    class Meta:
+        db_table = 'rate_setup'
+        verbose_name = 'Item Master'
+        verbose_name_plural = 'Item Masters'
+
+    def __str__(self):
+        return f"{self.xtype}, {self.xrate}"

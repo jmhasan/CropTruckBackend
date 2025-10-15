@@ -7,14 +7,15 @@ urlpatterns = [
     path('common-codes/list/', views.CommonCodesList.as_view(), name='common-code-list'),
     path('geo/divisions/', views.DivisionListView.as_view(), name='divisions-list'),
     path('geo/locations-all/', views.GeoLocationAll.as_view(), name='geolocation-all-list'),
-    path('geo/districts/<str:division_name>/', views.DistrictListView.as_view(), name='districts-list'),
-    path('geo/upazilas/<str:division_name>/<str:district_name>/', views.UpazilaListView.as_view(),name='upazilas-list'),
-    path('geo/unions/<str:division_name>/<str:district_name>/<str:upazila_name>/',views. UnionListView.as_view(),
+    path('geo/districts/', views.DistrictListView.as_view(), name='districts-list'),
+    path('geo/upazilas/<str:district_name>/', views.UpazilaListView.as_view(),name='upazilas-list'),
+    path('geo/unions/<str:district_name>/<str:upazila_name>/',views. UnionListView.as_view(),
          name='unions-list'),
     # Customer CRUD operations
     path('customers/create/', views.CustomerProfileCreate.as_view(), name='customer-create'),
     path('customers/list/', views.CustomerProfileList.as_view(), name='customer-list'),
     path('customers/update/<str:customer_code>/', views.CustomerProfileUpdate.as_view(), name='customer-update'),
+    path('rate/all-rent/<str:xtype>/', views.RentPerSack.as_view(), name='rent-per-sack'),
 
 
 ]

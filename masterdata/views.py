@@ -1,7 +1,9 @@
+import datetime
+
 from django.shortcuts import render
 from django_filters.rest_framework import DjangoFilterBackend
 from rest_framework import status, generics
-from masterdata.models import CommonCodes, CompanyProfile, GeoLocation
+from masterdata.models import CommonCodes, CompanyProfile, GeoLocation, RateSetup
 from masterdata.serializers import CommonCodesSerializer, DivisionSerializer, CustomerProfileCreateSerializer, \
     CustomerProfileResponseSerializer, GeoLocationSerializer, CustomerProfileUpdateSerializer
 from utils.customlist import CustomListAPIView
@@ -101,30 +103,28 @@ class GeoLocationAll(generics.ListAPIView):
 class DistrictListView(APIView):
     """Get all districts for a given division"""
 
-    def get(self, request, division_name, format=None):
+    def get(self, request, format=None):
         try:
             # Get districts for specific division
             districts = GeoLocation.objects.filter(
-                business_id=request.user.business_id,
-                division_name=division_name
+                business_id=request.user.business_id
             ).values(
-                'division_name', 'division_bn', 'district_name', 'district_bn'
+                'district_name', 'district_bn'
             ).distinct().order_by('district_name')
 
             if not districts.exists():
                 return APIResponse.not_found(
-                    f"No districts found for division: {division_name}"
+                    f"No districts found"
                 )
 
             districts_list = list(districts)
 
             return APIResponse.success(
                 data=districts_list,
-                message=f"Districts retrieved successfully for {division_name}",
+                message=f"Districts retrieved successfully for",
                 meta={
                     'count': len(districts_list),
-                    'level': 'district',
-                    'parent_division': division_name
+                    'level': 'district'
                 }
             )
 
@@ -138,32 +138,30 @@ class DistrictListView(APIView):
 class UpazilaListView(APIView):
     """Get all upazilas for a given division and district"""
 
-    def get(self, request, division_name, district_name, format=None):
+    def get(self, request, district_name, format=None):
         try:
             # Get upazilas for specific division and district
             upazilas = GeoLocation.objects.filter(
                 business_id=request.user.business_id,
-                division_name=division_name,
                 district_name=district_name
             ).values(
-                'division_name', 'division_bn', 'district_name', 'district_bn',
+                'district_name', 'district_bn',
                 'upazila_name', 'upazila_bn'
             ).distinct().order_by('upazila_name')
 
             if not upazilas.exists():
                 return APIResponse.not_found(
-                    f"No upazilas found for {district_name}, {division_name}"
+                    f"No upazilas found for {district_name}"
                 )
 
             upazilas_list = list(upazilas)
 
             return APIResponse.success(
                 data=upazilas_list,
-                message=f"Upazilas retrieved successfully for {district_name}, {division_name}",
+                message=f"Upazilas retrieved successfully for {district_name}",
                 meta={
                     'count': len(upazilas_list),
                     'level': 'upazila',
-                    'parent_division': division_name,
                     'parent_district': district_name
                 }
             )
@@ -176,14 +174,11 @@ class UpazilaListView(APIView):
 
 
 class UnionListView(APIView):
-    """Get all unions for a given division, district, and upazila"""
-
-    def get(self, request, division_name, district_name, upazila_name, format=None):
+    def get(self, request,district_name, upazila_name, format=None):
         try:
             # Get unions for specific division, district, and upazila
             unions = GeoLocation.objects.filter(
                 business_id=request.user.business_id,
-                division_name=division_name,
                 district_name=district_name,
                 upazila_name=upazila_name
             ).values(
@@ -193,18 +188,17 @@ class UnionListView(APIView):
 
             if not unions.exists():
                 return APIResponse.not_found(
-                    f"No unions found for {upazila_name}, {district_name}, {division_name}"
+                    f"No unions found for {upazila_name}, {district_name}"
                 )
 
             unions_list = list(unions)
 
             return APIResponse.success(
                 data=unions_list,
-                message=f"Unions retrieved successfully for {upazila_name}, {district_name}, {division_name}",
+                message=f"Unions retrieved successfully for {upazila_name}, {district_name}",
                 meta={
                     'count': len(unions_list),
                     'level': 'union',
-                    'parent_division': division_name,
                     'parent_district': district_name,
                     'parent_upazila': upazila_name
                 }
@@ -440,5 +434,39 @@ class CustomerProfileList(APIView):
         except Exception as e:
             return APIResponse.error(
                 message="Failed to retrieve customers",
+                status_code=500
+            )
+
+
+class RentPerSack(APIView):
+    def get(self, request, xtype, format=None):
+        try:
+            # Get specific rate type for business and year
+            current_year = datetime.date.today().year
+            rate_setup = RateSetup.objects.filter(
+                business_id=request.user.business_id,
+                xyear=current_year,
+                xtype=xtype
+            ).values(
+                'xtype',
+                'xrate'
+            ).first()
+
+            if not rate_setup:
+                return APIResponse.not_found(
+                    f"Rate type '{xtype}' not found for year {current_year}"
+                )
+
+            return APIResponse.success(
+                data=rate_setup,
+                message=f"Rate type '{xtype}' retrieved successfully",
+                meta={
+                    'year': current_year,
+                    'type': xtype
+                }
+            )
+        except Exception as e:
+            return APIResponse.error(
+                message="Failed to retrieve rate setup",
                 status_code=500
             )

@@ -1,6 +1,6 @@
 from rest_framework import serializers
 from rest_framework import serializers
-from .models import CustomerProfile, GeoLocation, CompanyProfile
+from .models import CustomerProfile, GeoLocation, CompanyProfile, RateSetup
 from masterdata.models import CommonCodes, GeoLocation
 
 class CommonCodesSerializer(serializers.ModelSerializer):
@@ -13,8 +13,6 @@ class GeoLocationSerializer(serializers.ModelSerializer):
     class Meta:
         model = GeoLocation
         exclude = ['pk']
-
-
 
 class DivisionSerializer(serializers.ModelSerializer):
     class Meta:
@@ -328,3 +326,9 @@ class CustomerProfileUpdateSerializer(serializers.ModelSerializer):
                 })
 
         return attrs
+
+
+class RateSetupSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RateSetup
+        fields = ['xyear', 'xtype', 'xrate']

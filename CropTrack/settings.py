@@ -75,6 +75,7 @@ INSTALLED_APPS = [
     'masterdata',
     'ops',
     'inventory',
+    'accounts',
     # for react app
     'corsheaders'
 ]

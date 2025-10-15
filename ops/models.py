@@ -99,11 +99,11 @@ class TokenNumber(AuditModel):
 
 class Certificate(models.Model):
     pk = models.CompositePrimaryKey('business_id', 'token_no')
-
     # Use correct app_label.ModelName
     business_id = models.ForeignKey('masterdata.CompanyProfile', on_delete=models.DO_NOTHING)
     token_no = models.CharField(max_length=10)
-
+    create_date = models.DateField(auto_now_add=True)
+    issued_date = models.DateField(auto_now_add=True)
     certificate_no = models.CharField(max_length=20, blank=True, null=True)
     booking_no = models.CharField(max_length=50, blank=True, null=True)
     customer_code = models.CharField(max_length=50, blank=True, null=True)
