@@ -74,6 +74,8 @@ INSTALLED_APPS = [
     'user',
     'masterdata',
     'ops',
+    'inventory',
+    'accounts',
     # for react app
     'corsheaders'
 ]
@@ -124,17 +126,20 @@ DATABASES = {
         'NAME': 'CropTrack',          # Replace with your actual DB name
         'USER': 'postgres',    # Replace with the Postgres user you created
         'PASSWORD': 'DataMart#',     # Replace with the correct password
-        'HOST': 'localhost',             # Or use '127.0.0.1'
+        'HOST': '45.114.85.149',             # Or use '127.0.0.1'
         'PORT': '5432',                  # Default PostgreSQL port
     }
 }
 
 
 REST_FRAMEWORK = {
-    'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework_simplejwt.authentication.JWTAuthentication',
-    )
-
+    'DEFAULT_AUTHENTICATION_CLASSES': [
+        'rest_framework_simplejwt.authentication.JWTAuthentication',  # JWT
+        'rest_framework.authentication.SessionAuthentication',        # Optional for browsable API
+    ],
+    'DEFAULT_PERMISSION_CLASSES': [
+        'rest_framework.permissions.IsAuthenticated',                 # Require login globally
+    ],
 }
 
 

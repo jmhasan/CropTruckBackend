@@ -1,34 +1,32 @@
+from decimal import Decimal
+
 from django.core.exceptions import ValidationError
 from django.core.validators import RegexValidator
-from django.db import transaction
-from django.http import JsonResponse
-from django.shortcuts import render
-from django.views.decorators.csrf import csrf_exempt
 from django_filters.rest_framework import DjangoFilterBackend
-from rest_framework import status, generics
 from rest_framework.decorators import api_view, permission_classes
-from rest_framework.parsers import JSONParser
-from rest_framework.permissions import IsAuthenticated
-from rest_framework.response import Response
-from rest_framework.views import APIView
-
+from rest_framework.utils import timezone
+from inventory.models import Imtrn, Stock
 from masterdata.serializers import CustomerProfileResponseSerializer
-from ops.models import TokenNumber
-from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer
-from django.http import HttpResponse, JsonResponse
-from django.views.decorators.csrf import csrf_exempt
-from rest_framework.parsers import JSONParser
+from ops.models import TokenNumber, Booking, Certificate, CertificateDetails
+from ops.serializers import TokenSerializer, BookingSerializer, BookingCreateSerializer, CustomerProfileSerializer, \
+    CertificateSerializer, CertificateCreateSerializer, CertificateDetailsBulkCreateSerializer, \
+    CertificateDetailsResponseSerializer, CertificateReadyListSerializer, OpchallanSerializer
 from masterdata.models import CompanyProfile, CustomerProfile  # Make sure import is correct
-# Create your views here.
-
-from datetime import datetime
-
+from ops.services import CertificateService
 from utils.customlist import CustomListAPIView
 from utils.response import APIResponse
+from rest_framework.views import APIView
+from rest_framework.response import Response
+from rest_framework import status, generics
+from django.db import transaction
+from django.utils import timezone
+from datetime import datetime
+import logging
+
+logger = logging.getLogger(__name__)
 
 
 @api_view(['POST'])
-@permission_classes([IsAuthenticated])
 def token_generate(request):
     try:
         count = int(request.data.get('number_of_tokens', 1))
@@ -70,13 +68,6 @@ def token_generate(request):
     }, status=status.HTTP_201_CREATED)
 
 
-# class PendingToken(generics.ListAPIView):
-#     queryset = TokenNumber.objects.filter(xstatus='Pending').order_by('token_no')
-#     serializer_class = TokenSerializer
-#     filter_backends = [DjangoFilterBackend]
-#     filterset_fields = ['token_no',]
-
-@permission_classes([IsAuthenticated])
 class PendingToken(CustomListAPIView):
     queryset = TokenNumber.objects.filter(xstatus='Pending').order_by('token_no')
     serializer_class = TokenSerializer
@@ -87,7 +78,6 @@ class PendingToken(CustomListAPIView):
         return "Pending tokens retrieved successfully"
 
 
-@permission_classes([IsAuthenticated])
 class CountedToken(CustomListAPIView):
     queryset = TokenNumber.objects.filter(xstatus='Counted').order_by('token_no')
     serializer_class = TokenSerializer
@@ -97,8 +87,8 @@ class CountedToken(CustomListAPIView):
     def get_success_message(self):
         return "Counted tokens retrieved successfully"
 
+
 @api_view(['GET', 'PUT', 'DELETE'])
-@permission_classes([IsAuthenticated])
 def sack_number_input(request, token_no):
     business_id = request.user.business_id
     try:
@@ -132,8 +122,6 @@ def sack_number_input(request, token_no):
         snippet.delete()
         return APIResponse.deleted("Token deleted successfully")
 
-
-@permission_classes([IsAuthenticated])
 class CustomerSearch(APIView):
     """
     Search for existing customer by mobile number
@@ -201,11 +189,7 @@ class CustomerSearch(APIView):
             )
 
 
-@permission_classes([IsAuthenticated])
 class BookingCreate(APIView):
-    """
-    Create booking and automatically handle customer creation/update
-    """
 
     def post(self, request, format=None):
         try:
@@ -280,8 +264,17 @@ class BookingCreate(APIView):
                 status_code=500
             )
 
-# views.py - Additional utility view for customer profile management
-@permission_classes([IsAuthenticated])
+
+class BookingList(CustomListAPIView):
+    queryset = Booking.objects.filter(xstatus='Pending').order_by('-booking_no')
+    serializer_class = BookingSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['booking_no','xstatus','xmobile',]
+
+    def get_success_message(self):
+        return "Pending tokens retrieved successfully"
+
+
 class CustomerProfileDetail(APIView):
     """
     Get customer profile by customer code
@@ -326,4 +319,384 @@ class CustomerProfileDetail(APIView):
             return APIResponse.error(
                 message="Failed to retrieve customer profile. Please try again.",
                 status_code=500
+            )
+
+
+class CertificateCreateAPIView(APIView):
+    def post(self, request):
+        # 1️⃣ Get business from user profile
+        try:
+            business = CompanyProfile.objects.get(pk=request.user.business_id)
+        except CompanyProfile.DoesNotExist:
+            return APIResponse.error(
+                message="User business profile not found",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+        except AttributeError:
+            return APIResponse.error(
+                message="User does not have business_id attribute",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 2️⃣ Validate request data
+        serializer = CertificateCreateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return APIResponse.validation_error(
+                errors=serializer.errors,
+                message="Validation failed"
+            )
+
+        token_no = serializer.validated_data.get('token_no')
+
+        # 3️⃣ Check token availability
+        if not TokenNumber.objects.filter(
+            business_id=business,
+            token_no=token_no,
+            xstatus='Counted'  # Ensure token is available
+        ).exists():
+            return APIResponse.error(
+                message=f"Token {token_no} is not Counted or already used for your business",
+                status_code=status.HTTP_400_BAD_REQUEST
+            )
+
+        # 4️⃣ Create certificate and handle exceptions
+        try:
+            result = CertificateService.create_certificate(
+                validated_data=serializer.validated_data,
+                user=request.user
+            )
+
+            certificate = result['certificate']
+            customer = result['customer']
+            is_new_customer = result['is_new_customer']
+            business = result['business']
+
+            # Prepare response payload
+            response_data = {
+                'certificate': CertificateSerializer(certificate).data,
+                'customer': CustomerProfileSerializer(customer).data,
+                'business_name': getattr(business, 'name', str(business)),
+                'is_new_customer': is_new_customer,
+            }
+
+            return APIResponse.created(
+                data=response_data,
+                message="Certificate created successfully"
+            )
+
+        except Exception as e:
+            return APIResponse.error(
+                message=f"Failed to create certificate: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+            )
+
+
+class CertificateListAPIView(CustomListAPIView):
+    queryset = Certificate.objects.all().order_by('-token_no')
+    serializer_class = CertificateSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['xmobile','xstatus','token_no',]
+
+    def get_success_message(self):
+        return "Certificates retrieved successfully"
+
+
+class CertificateReadyList(CustomListAPIView):
+    queryset = Certificate.objects.all().order_by('-token_no')
+    serializer_class = CertificateReadyListSerializer
+    filter_backends = [DjangoFilterBackend]
+    filterset_fields = ['xmobile', 'xstatus', 'token_no']
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        token_numbers = list(queryset.values_list('token_no', flat=True))
+        count = len(token_numbers)
+
+        return Response({
+            "success": True,
+            "status_code": 200,
+            "message": self.get_success_message(),
+            "data": token_numbers,
+            "meta": {
+                "count": count
+            }
+        })
+
+
+class CertificateDetailAPIView(APIView):
+    def get_object(self, token_no, user):
+        # 1️⃣ Validate user's business
+        try:
+            business = CompanyProfile.objects.get(pk=user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return None, "User business profile not found"
+
+        # 2️⃣ Retrieve certificate for this business
+        try:
+            certificate = Certificate.objects.get(business_id=business, token_no=token_no)
+            return certificate, None
+        except Certificate.DoesNotExist:
+            return None, "Certificate not found for your business"
+
+    # --------------- GET (Retrieve) ----------------
+    def get(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate)
+        return APIResponse.success(
+            data=serializer.data,
+            message="Certificate retrieved successfully"
+        )
+
+    # --------------- PUT (Update) ----------------
+    def put(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save(updated_by=request.user, updated_at=timezone.now())
+            return APIResponse.updated(
+                data=serializer.data,
+                message="Certificate updated successfully"
+            )
+
+        return APIResponse.validation_error(
+            errors=serializer.errors,
+            message="Validation failed"
+        )
+
+    # --------------- DELETE ----------------
+    def delete(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        certificate.delete()
+        return APIResponse.deleted(
+            message="Certificate deleted successfully"
+        )
+
+
+class BulkCreateCertificateDetailsView(APIView):
+    def post(self, request, token_no):
+        serializer = CertificateDetailsBulkCreateSerializer(
+            data=request.data,
+            context={'request': request, 'token_no': token_no}
+        )
+
+        if serializer.is_valid():
+            try:
+                with transaction.atomic():
+                    # 1️⃣ Create certificate details first
+                    created_details = serializer.save()
+
+                    # 2️⃣ Get certificate and business info for imtrn
+                    try:
+                        business = CompanyProfile.objects.get(pk=request.user.business_id)
+                        certificate = Certificate.objects.get(token_no=token_no, business_id=business)
+                    except (CompanyProfile.DoesNotExist, Certificate.DoesNotExist) as e:
+                        logger.error(f"Failed to get business or certificate: {str(e)}")
+                        raise Exception("Business profile or certificate not found")
+
+                    # 3️⃣ Prepare common values for imtrn entries
+                    entry_date = certificate.created_at.date() if certificate.created_at else timezone.now().date()
+                    current_time = timezone.now().time()
+                    xtime = datetime.combine(entry_date, current_time)
+                    current_datetime = timezone.now()
+
+                    # 4️⃣ Create imtrn entries from the created certificate details
+                    imtrn_entries = []
+
+                    for idx, detail in enumerate(created_details, 1):
+                        # Validate detail data before creating imtrn entry
+                        if not detail.xitem:
+                            logger.warning(f"Certificate detail {detail.id} missing xitem, skipping imtrn entry")
+                            continue
+
+                        if not detail.number_of_sacks or detail.number_of_sacks <= 0:
+                            logger.warning(f"Certificate detail {detail.id} has invalid quantity, skipping imtrn entry")
+                            continue
+
+                        # Create Imtrn entry data
+                        imtrn_entry = Imtrn(
+                            business_id=business,
+                            xunit=detail.xunit,
+                            xfloor=detail.xfloor,
+                            xpocket=detail.xpocket,
+                            xitem=detail.xitem,
+                            xwh=getattr(certificate, 'xwh', None),
+                            xdate=current_datetime,
+                            xyear=current_datetime.year,
+                            xper=(current_datetime.month + 6) % 12 or 12,
+                            xqty=detail.number_of_sacks,
+                            xval=detail.total_rent or 0,
+                            xdocnum=token_no,
+                            token_no=token_no,
+                            xdoctype="ADRE",
+                            xaction="Receipt",
+                            xsign=1,
+                            xdocrow=idx,
+                            xtime=xtime,
+                            created_by=request.user,
+                            created_at=current_datetime,
+                            updated_at=current_datetime,
+                        )
+                        imtrn_entries.append(imtrn_entry)
+
+                    # 5️⃣ Bulk create imtrn entries if we have valid entries
+                    created_imtrn_entries = []
+                    if imtrn_entries:
+                        created_imtrn_entries = Imtrn.objects.bulk_create(imtrn_entries)
+                        logger.info(f"Created {len(created_imtrn_entries)} imtrn entries for certificate {token_no}")
+
+                    # 6️⃣ Optionally update certificate status if needed
+                    # Uncomment if you want to mark certificate as "Posted" when details are created
+                    certificate.xstatus = "Posted"
+                    certificate.posted_at = current_datetime
+                    certificate.posted_by = request.user.id
+                    certificate.save()
+
+                # 7️⃣ Prepare response with both certificate details and imtrn info
+                response_serializer = CertificateDetailsResponseSerializer(
+                    created_details,
+                    many=True
+                )
+
+                return APIResponse.created(
+                    data={
+                        'certificate_details': response_serializer.data,
+                        'imtrn_entries_created': len(created_imtrn_entries),
+                        'summary': {
+                            'certificate_token': token_no,
+                            'details_created': len(created_details),
+                            'imtrn_entries_created': len(created_imtrn_entries),
+                            'created_at': current_datetime.isoformat()
+                        }
+                    },
+                    message=f'Successfully created {len(created_details)} certificate details and {len(created_imtrn_entries)} stock entries'
+                )
+
+            except Exception as e:
+                logger.error(
+                    f"Failed to create certificate details and imtrn entries for {token_no}: {str(e)}",
+                    exc_info=True,
+                    extra={
+                        'user_id': request.user.id,
+                        'business_id': request.user.business_id,
+                        'token_no': token_no
+                    }
+                )
+                return APIResponse.error(
+                    message=f'Failed to create certificate details and stock entries: {str(e)}',
+                    status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
+                )
+
+        return APIResponse.validation_error(
+            message='Validation failed',
+            errors=serializer.errors
+        )
+
+
+class CertificateManage(APIView):
+    def get_object(self, token_no, user):
+        # 1️⃣ Validate user's business
+        try:
+            business = CompanyProfile.objects.get(pk=user.business_id)
+        except (CompanyProfile.DoesNotExist, AttributeError):
+            return None, "User business profile not found"
+
+        # 2️⃣ Retrieve certificate for this business
+        try:
+            certificate = Certificate.objects.get(business_id=business, token_no=token_no)
+            return certificate, None
+        except Certificate.DoesNotExist:
+            return None, "Certificate not found for your business"
+
+    # --------------- GET (Retrieve) ----------------
+    def get(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate)
+        return APIResponse.success(
+            data=serializer.data,
+            message="Certificate retrieved successfully"
+        )
+
+    # --------------- PUT (Update) ----------------
+    def put(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        serializer = CertificateSerializer(certificate, data=request.data, partial=True)
+
+        if serializer.is_valid():
+            serializer.save(updated_by=request.user, updated_at=timezone.now())
+            return APIResponse.updated(
+                data=serializer.data,
+                message="Certificate updated successfully"
+            )
+
+        return APIResponse.validation_error(
+            errors=serializer.errors,
+            message="Validation failed"
+        )
+
+    # --------------- DELETE ----------------
+    def delete(self, request, token_no):
+        certificate, error = self.get_object(token_no, request.user)
+
+        if error:
+            return APIResponse.not_found(message=error)
+
+        certificate.delete()
+        return APIResponse.deleted(
+            message="Certificate deleted successfully"
+        )
+
+
+class CertificateDetailManage(generics.ListAPIView):
+    serializer_class = CertificateDetailsResponseSerializer
+
+    def get_queryset(self):
+        token_no = self.kwargs.get('token_no')
+        return CertificateDetails.objects.filter(token_no=token_no)
+
+
+class DeliveryChallanCreateView(APIView):
+    def post(self, request):
+        try:
+            serializer = OpchallanSerializer(
+                data=request.data,
+                context={'request': request}  # Pass request to serializer
+            )
+
+            if serializer.is_valid():
+                serializer.save()
+                return APIResponse.created(
+                    message='Delivery challan created successfully',
+                    data=serializer.data,
+                )
+
+            return APIResponse.error(
+                message='Validation failed',
+                errors=serializer.errors
+            )
+
+        except Exception as e:
+            return APIResponse.error(
+                message=f"Failed to create delivery challan: {str(e)}",
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR
             )

@@ -184,3 +184,89 @@ class GeoLocation(models.Model):
 
     def __str__(self):
         return f"{self.union_name}, {self.upazila_name}"
+
+
+class ItemMaster(AuditModel):
+    pk = models.CompositePrimaryKey('business_id', 'xitem')
+    business_id = models.ForeignKey(CompanyProfile, on_delete=models.DO_NOTHING)
+    xitem = models.CharField(max_length=50, verbose_name="Item Code")
+    xname = models.CharField(max_length=200, verbose_name="Item Name")
+    xdesc = models.TextField(blank=True, null=True, verbose_name="Description")
+    xstype = models.TextField(default='Stock', verbose_name="Stock Type")
+    xhscode = models.TextField(blank=True, null=True,  verbose_name="H.S. Code")
+    xsku = models.CharField(max_length=100, blank=True, null=True,  verbose_name="SKU")
+    xbarcode = models.CharField(max_length=100, blank=True,  null=True, verbose_name="Barcode")
+    xgroup = models.CharField(max_length=50, default='FG', verbose_name="Item Group")
+    xclass = models.CharField(max_length=50,  default='FG', verbose_name="Item Class")
+    xcategory = models.CharField(max_length=50, default='FG', verbose_name="Item Category")
+    xtype = models.CharField(max_length=50,  default='FG', verbose_name="Item Type",blank=True, null=True)
+    xbrand = models.CharField(max_length=100, default='FG', verbose_name="Brand", blank=True, null=True)
+    # Unit
+    xunitpur = models.CharField(max_length=50, default='KG', verbose_name="Purchase Unit",blank=True, null=True)
+    xunitstk = models.CharField(max_length=50, default='KG', verbose_name="Stock Unit", blank=True, null=True)
+    xunitsel = models.CharField(max_length=50, default='KG', verbose_name="Selling Unit", blank=True, null=True)
+    xunitpck = models.CharField(max_length=50, default='KG', verbose_name="Packaging Unit", blank=True, null=True)
+    xunitiss = models.CharField(max_length=50, default='KG', verbose_name="Issue Unit",blank=True, null=True)
+    # Conversion factor
+    xcfpur = models.DecimalField(max_digits=20, decimal_places=4, default=0.00,
+                                 verbose_name="Conversion factor Purchase",blank=True, null=True)
+    xcfsta = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Conversion factor Stock",blank=True, null=True)
+    xcfsel = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Conversion factor selling",blank=True, null=True)
+    xcfpck = models.DecimalField(max_digits=20, decimal_places=4, default=0.00,
+                                 verbose_name="Conversion factor Packaging", blank=True, null=True)
+    xcfiss = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Conversion factor Issue",blank=True, null=True)
+    # Pricing
+    xpurprice = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Purchase Price",blank=True, null=True)
+    xselprice = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Sales Price",blank=True, null=True)
+
+    # Inventory
+    current_stock = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Current Stock",blank=True, null=True)
+    reorder_level = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Reorder Level",blank=True, null=True)
+    max_stock = models.DecimalField(max_digits=20, decimal_places=4, default=0.00, verbose_name="Maximum Stock",blank=True, null=True)
+
+    # Optional ERP fields
+    manufacture_date = models.DateField(blank=True, null=True)
+    shelf_location = models.CharField(max_length=100, blank=True, null=True)
+    ledger_no = models.CharField(max_length=50, blank=True, null=True)
+
+    # Status
+    is_active = models.BooleanField(default=True, verbose_name="Active",blank=True, null=True)
+
+    class Meta:
+        db_table = 'item_master'
+        verbose_name = 'Item Master'
+        verbose_name_plural = 'Item Masters'
+
+    def __str__(self):
+        return f"{self.xitem}, {self.xname}"
+
+RENT_PER_SACK = 'RENT_PER_SACK'
+TRANSPORT_CHARGE = 'TRANSPORT_CHARGE'
+FANNING_CHARGE = 'FANNING_CHARGE'
+LOADING_CHARGE = 'LOADING_CHARGE'
+UNLOADING_CHARGE = 'UNLOADING_CHARGE'
+
+RATE_TYPES = [
+    (RENT_PER_SACK, 'Store Rent'),
+    (TRANSPORT_CHARGE, 'Transport Charge'),
+    (FANNING_CHARGE, 'Fanning Charge'),
+    (LOADING_CHARGE, 'Loading Charge'),
+    (UNLOADING_CHARGE, 'Unloading Charge'),
+]
+
+
+
+class RateSetup(AuditModel):
+    pk = models.CompositePrimaryKey('business_id','xyear','xtype')
+    business_id = models.ForeignKey(CompanyProfile, on_delete=models.DO_NOTHING)
+    xyear = models.IntegerField()
+    xtype = models.CharField(max_length=50, choices=RATE_TYPES)
+    xrate = models.DecimalField(max_digits=10, decimal_places=2, default=0.0)
+
+    class Meta:
+        db_table = 'rate_setup'
+        verbose_name = 'Item Master'
+        verbose_name_plural = 'Item Masters'
+
+    def __str__(self):
+        return f"{self.xtype}, {self.xrate}"
